@@ -7,3 +7,6 @@ obj/
 *.db-journal
 artifacts/
 .ai/
+.dotnet-home/
+*.user
+TestResults/
