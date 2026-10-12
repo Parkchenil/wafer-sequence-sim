@@ -106,14 +106,17 @@ public sealed class SequenceEngine : ISimulator
     private async Task PauseGate(CancellationToken ct) { if (_pause) { foreach (var m in _modules.Where(m => m.State == ModuleState.Idle)) m.Set(ModuleState.Paused, "일시정지", _clock.Elapsed); Publish(true); await _resume.Task.WaitAsync(ct); foreach (var m in _modules.Where(m => m.State == ModuleState.Paused)) m.Set(ModuleState.Idle, "", _clock.Elapsed); } }
     private void Raise(AlarmCode code, ModuleId module, string message) { var alarm = new Alarm($"A{_alarms.Count + 1:D4}", code, AlarmSeverity.Error, module, message, _clock.Elapsed, null, false); lock (_gate) { _alarms.Add(alarm); M(module).Set(ModuleState.Alarm, message, _clock.Elapsed); } AlarmRaised?.Invoke(alarm); Publish(true); }
     private async Task SafeState() { var ct = CancellationToken.None; await _d.ZAxis.StopAsync(ct); await _d.StageX.StopAsync(ct); await _d.StageY.StopAsync(ct); if (_recipe is { } r) await _d.ZAxis.MoveAbsoluteAsync(r.ZSafeHeightUm, r.TravelSpeedMmPerS, r.AccelMmPerS2, TimeSpan.FromSeconds(30), ct); if (_chuckHeld) { _chuckHeld = false; _chuck.Release(); } Publish(true); }
-    public async Task<DeviceResult> InitializeAsync(CancellationToken ct)
+    /// <summary>UI 스레드의 동기화 컨텍스트를 타지 않도록 본체는 스레드풀에서 돈다(화면 스레드 점유·데드락 방지).</summary>
+    public Task<DeviceResult> InitializeAsync(CancellationToken ct) => Task.Run(() => InitializeCoreAsync(ct), ct);
+    private async Task<DeviceResult> InitializeCoreAsync(CancellationToken ct)
     {
         if (State != EquipmentState.Uninitialized) return DeviceResult.Fail(AlarmCode.InterlockBlocked, "초기화 상태가 아님");
         foreach (var m in _modules) m.Set(ModuleState.Homing, "원점 복귀", _clock.Elapsed); Publish(true);
         foreach (var axis in new[] { _d.StageX, _d.StageY, _d.ZAxis }) { var on = await axis.ServoOnAsync(ct); if (!on.Ok) { Raise(on.Code, ModuleId.Stage, on.Message); return on; } var home = await axis.HomeAsync(TimeSpan.FromSeconds(30), ct); if (!home.Ok) { Raise(home.Code, ModuleId.Stage, home.Message); return home; } }
         foreach (var m in _modules) m.Set(ModuleState.Idle, "", _clock.Elapsed); Publish(true); return DeviceResult.Success;
     }
-    public async Task<DeviceResult> StartAsync(RecipeDto recipe, int waferCount, CancellationToken ct)
+    public Task<DeviceResult> StartAsync(RecipeDto recipe, int waferCount, CancellationToken ct) => Task.Run(() => StartCoreAsync(recipe, waferCount, ct), ct);
+    private async Task<DeviceResult> StartCoreAsync(RecipeDto recipe, int waferCount, CancellationToken ct)
     {
         if (State != EquipmentState.Idle && State != EquipmentState.Completed) return DeviceResult.Fail(AlarmCode.InterlockBlocked, "시작 상태가 아님");
         if (waferCount < 1 || recipe.ReadingsPerSite < 1 || recipe.SaveQueueCapacity < 1) return DeviceResult.Fail(AlarmCode.InterlockBlocked, "레시피 값 오류");
