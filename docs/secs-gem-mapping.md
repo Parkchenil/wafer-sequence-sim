@@ -6,17 +6,17 @@
 
 | CEID | 발생 원천 (Contracts) | 보고 내용 |
 |---|---|---|
-| (통합 후 채움) | `EquipmentState.Initializing` 진입 (`ISimulator.InitializeAsync`) | 초기화 시작 |
-| (통합 후 채움) | `EquipmentState.Idle` 진입 | 초기화 완료 / 아이들 |
-| (통합 후 채움) | `EquipmentState.Running` 진입 (`ISimulator.StartAsync`) | 로트 시작 |
-| (통합 후 채움) | `EquipmentState.Paused` / `Resume` | 일시정지·재개 |
-| (통합 후 채움) | `EquipmentState.Aborting` / 완료 후 `Idle` (`AbortAsync`) | 중단 |
-| (통합 후 채움) | `EquipmentState.Completed` | 로트 완료 |
-| (통합 후 채움) | `WaferTrack.Status` 변화 (Pending→Processing→Measured→Saved/Failed) | 웨이퍼 처리 추적 |
-| (통합 후 채움) | `MeasurementCompleted` 이벤트 | 측정값 보고 |
-| (통합 후 채움) | `WaferCompleted` 이벤트 | 웨이퍼 요약 보고 |
-| (통합 후 채움) | `RunCompleted` 이벤트 (`RunRecord`) | 실행 이력 보고 |
-| (통합 후 채움) | `PhaseKind.Wait` 진입/복귀 (`StepEvent.IsWait`, `WaitReason`) | 대기 원인 보고 |
+| CEID 1001 | `EquipmentState.Initializing` 진입 (`ISimulator.InitializeAsync`) | 초기화 시작 |
+| CEID 1002 | `EquipmentState.Idle` 진입 | 초기화 완료 / 아이들 |
+| CEID 1003 | `EquipmentState.Running` 진입 (`ISimulator.StartAsync`) | 로트 시작 |
+| CEID 1004 | `EquipmentState.Paused` / `Resume` | 일시정지·재개 |
+| CEID 1005 | `EquipmentState.Aborting` / 완료 후 `Idle` (`AbortAsync`) | 중단 |
+| CEID 1006 | `EquipmentState.Completed` | 로트 완료 |
+| CEID 1007 | `WaferTrack.Status` 변화 (Pending→Processing→Measured→Saved/Failed) | 웨이퍼 처리 추적 |
+| CEID 1008 | `MeasurementCompleted` 이벤트 | 측정값 보고 |
+| CEID 1009 | `WaferCompleted` 이벤트 | 웨이퍼 요약 보고 |
+| CEID 1010 | `RunCompleted` 이벤트 (`RunRecord`) | 실행 이력 보고 |
+| CEID 1011 | `PhaseKind.Wait` 진입/복귀 (`StepEvent.IsWait`, `WaitReason`) | 대기 원인 보고 |
 
 단계(Phase) 수준의 이벤트는 `StepEvent` 로그(`PhaseKind` 20종)를 그대로 CEID로 승격하는 방식을 쓴다. `PhaseKind` 값: Home, MapSlots, PickFromSlot, Align, PlaceOnChuck, VacuumCheck, Illumination, AutoFocus, MapInspect, MoveXY, DescendZ, ContactDetect, Measure, LiftZ, PickFromChuck, ReturnToSlot, Save, HostReport, Wait, AlarmRecovery.
 
@@ -50,12 +50,12 @@
 
 | SVID | 원천 (Contracts) | 단위 |
 |---|---|---|
-| (통합 후 채움) | `EquipmentSnapshot.SimTime` (시뮬레이션 시간) | s |
-| (통합 후 채움) | `RunStats.AverageTact` | s/웨이퍼 |
-| (통합 후 채움) | `RunStats.Uph` | 웨이퍼/h |
-| (통합 후 채움) | `RunStats.SaveQueueDepth` / `SaveQueueCapacity` | 개 |
-| (통합 후 채움) | `EquipmentState` | enum |
-| (통합 후 채움) | `WaferTrack` (현재 웨이퍼·사이트 진행률) | - |
+| SVID 2001 | `EquipmentSnapshot.SimTime` (시뮬레이션 시간) | s |
+| SVID 2002 | `RunStats.AverageTact` | s/웨이퍼 |
+| SVID 2003 | `RunStats.Uph` | 웨이퍼/h |
+| SVID 2004 | `RunStats.SaveQueueDepth` / `SaveQueueCapacity` | 개 |
+| SVID 2005 | `EquipmentState` | enum |
+| SVID 2006 | `WaferTrack` (현재 웨이퍼·사이트 진행률) | - |
 
 ## 원격 명령 매핑
 

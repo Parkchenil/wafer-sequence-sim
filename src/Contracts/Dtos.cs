@@ -89,6 +89,8 @@ public enum AlarmCode
     AxisLimit = 1002,
     AxisNotHomed = 1003,
     ServoOff = 1004,
+    AxisStopped = 1005,          // 운영자/안전 상태의 정지로 끊긴 이동(타임아웃이 아님)
+    ConfigError = 1006,          // 알 수 없는 IO 포인트 등 설정 오류
     ContactTimeout = 2001,
     ContactRetryExceeded = 2002,
     VacuumNotConfirmed = 3001,

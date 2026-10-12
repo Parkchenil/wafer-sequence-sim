@@ -46,7 +46,22 @@ internal static class Program
         var recipe = new RecipeDto { Clock = ClockMode.Instant, Seed = seed };
         var measurements = new ConcurrentQueue<MeasurementResult>();
         var summaries = new ConcurrentQueue<WaferSummary>();
-        simulator.MeasurementCompleted += measurements.Enqueue;
+        string? firstWafer = null;
+        var firstWaferSites = 0;
+        EquipmentSnapshot? runningSnapshot = null;
+        IReadOnlyList<StepEvent>? runningSteps = null;
+        MeasurementResult[]? runningMeasurements = null;
+        simulator.MeasurementCompleted += result =>
+        {
+            measurements.Enqueue(result);
+            Interlocked.CompareExchange(ref firstWafer, result.WaferId, null);
+            if (result.WaferId == firstWafer && Interlocked.Increment(ref firstWaferSites) == 5)
+            {
+                runningSnapshot = simulator.Snapshot;
+                runningSteps = simulator.Log.ToArray();
+                runningMeasurements = measurements.ToArray();
+            }
+        };
         simulator.WaferCompleted += summaries.Enqueue;
         DeviceResult run;
         try
@@ -75,8 +90,8 @@ internal static class Program
         _ = form.Handle;
         form.CreateChildren();
         form.PerformLayout();
-        form.ConfigureLayout();
-        form.PerformLayout();
+        form.PrepareScreenshotLayout(new Size(1280, 800));
+        form.LoadRunHistoryForScreenshot();
         Capture(form, args[pathIndex], 0);
         if (token.IsCancellationRequested) { Console.Error.WriteLine("스크린샷 실행 제한 시간 3분 초과"); return 2; }
         var folder = Path.GetDirectoryName(args[pathIndex]) ?? "";
@@ -84,6 +99,11 @@ internal static class Program
         Capture(form, Path.Combine(folder, $"{name}-map.png"), 1);
         if (token.IsCancellationRequested) { Console.Error.WriteLine("스크린샷 실행 제한 시간 3분 초과"); return 2; }
         Capture(form, Path.Combine(folder, $"{name}-stats.png"), 2);
+        if (runningSnapshot is not null && runningSteps is not null && runningMeasurements is not null)
+        {
+            form.LoadCapturedState(runningSnapshot, runningSteps, runningMeasurements, Array.Empty<WaferSummary>());
+            Capture(form, Path.Combine(folder, $"{name}-running.png"), 0);
+        }
         return 0;
     }
 
@@ -93,7 +113,7 @@ internal static class Program
         form.PerformLayout();
         form.Refresh();
         using var bitmap = new Bitmap(1280, 800);
-        form.DrawToBitmap(bitmap, new Rectangle(0, 0, 1280, 800));
+        form.DrawScreenshot(bitmap);
         bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
     }
 

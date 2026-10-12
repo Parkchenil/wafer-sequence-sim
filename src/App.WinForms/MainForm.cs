@@ -27,7 +27,8 @@ public sealed class MainForm : Form
     private readonly GanttPanel _gantt = new() { Dock = DockStyle.Fill };
     private readonly WaferMapPanel _map = new() { Dock = DockStyle.Fill };
     private readonly StatsPanel _stats = new() { Dock = DockStyle.Fill };
-    private readonly PropertyGrid _grid = new() { Dock = DockStyle.Fill, HelpVisible = true, ToolbarVisible = false };
+    private readonly RecipeEditorPanel _editor;
+    private readonly TableLayoutPanel _root = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Margin = Padding.Empty, Padding = Padding.Empty };
     private readonly NumericUpDown _waferCount = new() { Minimum = 1, Maximum = 25, Value = 1, Width = 85 };
     private readonly ListView _log = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, VirtualMode = true };
     private readonly ListView _alarms = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
@@ -54,13 +55,14 @@ public sealed class MainForm : Form
     public MainForm(ISimulator simulator)
     {
         _sim = simulator;
+        if (simulator.CurrentRecipe is { } currentRecipe) _recipe.Load(currentRecipe);
+        _editor = new RecipeEditorPanel(_recipe);
         Text = "Wafer Sequence Simulator · HMI";
         ClientSize = new Size(1280, 800);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9f);
         BackColor = Color.FromArgb(22, 29, 39);
         BuildLayout();
-        _grid.SelectedObject = _recipe;
         _log.RetrieveVirtualItem += (_, e) => e.Item = LogItem(_events[_filteredIndexes[_filteredIndexes.Count - 1 - e.ItemIndex]]);
         _waitOnly.CheckedChanged += (_, _) => RefreshLog();
         _sim.SnapshotChanged += SnapshotChanged;
@@ -92,28 +94,27 @@ public sealed class MainForm : Form
         toolbar.Items.Add(new ToolStripLabel("가상 장비 · 공정 흐름"));
         var status = new StatusStrip { Dock = DockStyle.Fill, BackColor = Color.FromArgb(36, 46, 60), ForeColor = Color.WhiteSmoke, SizingGrip = false };
         status.Items.AddRange(new ToolStripItem[] { _state, new ToolStripStatusLabel("│"), _time, new ToolStripStatusLabel("│"), _tact, new ToolStripStatusLabel("│"), _uph, new ToolStripStatusLabel("│"), _count, new ToolStripStatusLabel("│ 저장 큐"), _queue, new ToolStripStatusLabel("│"), _alarmCount, new ToolStripStatusLabel("│"), _message });
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Margin = Padding.Empty, Padding = Padding.Empty };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        root.Controls.Add(toolbar, 0, 0);
-        root.Controls.Add(_outer, 0, 1);
-        root.Controls.Add(status, 0, 2);
-        Controls.Add(root);
+        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        _root.Controls.Add(toolbar, 0, 0);
+        _root.Controls.Add(_outer, 0, 1);
+        _root.Controls.Add(status, 0, 2);
+        Controls.Add(_root);
         _outer.Panel2.Controls.Add(_right);
         var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(8) };
         left.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         left.RowStyles.Add(new RowStyle(SizeType.Absolute, 210));
         left.Controls.Add(new Label { Text = "레시피 / RECIPE", Dock = DockStyle.Fill, ForeColor = Color.WhiteSmoke }, 0, 0);
-        left.Controls.Add(_grid, 0, 1);
+        left.Controls.Add(_editor, 0, 1);
         var controls = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = true };
         controls.Controls.Add(new Label { Text = "웨이퍼 수", Width = 78, ForeColor = Color.WhiteSmoke, Padding = new Padding(0, 6, 0, 0) });
         controls.Controls.Add(_waferCount);
         _initializeButton = AddButton(controls, "초기화", () => Command(() => _sim.InitializeAsync(CancellationToken.None)));
         _startButton = AddButton(controls, "시작", () =>
         {
-            var validation = _recipe.Validate();
+            var validation = _editor.Commit();
             if (validation is not null) { ShowError(validation); return Task.CompletedTask; }
             ResetRunView();
             _runTask = Command(() => _sim.StartAsync(_recipe.Build(), (int)_waferCount.Value, CancellationToken.None));
@@ -161,8 +162,7 @@ public sealed class MainForm : Form
 
     public void ConfigureLayout()
     {
-        SuspendLayout();
-        PerformLayout();
+        _root.PerformLayout();
         _outer.PerformLayout();
         _right.PerformLayout();
         _center.PerformLayout();
@@ -171,10 +171,23 @@ public sealed class MainForm : Form
         _outer.SplitterDistance = 320;
         _right.Panel1MinSize = 400;
         _right.Panel2MinSize = 430;
-        _right.SplitterDistance = _right.ClientSize.Width - _right.SplitterWidth - 430;
+        _right.Dock = DockStyle.Fill;
+        _right.SplitterDistance = _root.ClientSize.Width - _outer.SplitterDistance - _outer.SplitterWidth - _right.SplitterWidth - 430;
         _center.SplitterDistance = (int)(_center.ClientSize.Height * .56);
-        ResumeLayout(true);
-        PerformLayout();
+        _root.PerformLayout();
+    }
+
+    public void PrepareScreenshotLayout(Size size)
+    {
+        _root.Dock = DockStyle.None;
+        _root.Bounds = new Rectangle(Point.Empty, size);
+        _root.PerformLayout();
+        ConfigureLayout();
+    }
+
+    public void DrawScreenshot(Bitmap bitmap)
+    {
+        _root.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
     }
 
     public void SelectScreenshotTab(int index)
@@ -206,7 +219,12 @@ public sealed class MainForm : Form
         {
             var result = await action();
             if (!result.Ok) ShowError($"{result.Code}: {result.Message}");
-            else { _message.Text = "명령 완료"; _message.ForeColor = Color.WhiteSmoke; }
+            else
+            {
+                var stats = _sim.Snapshot.Stats;
+                _message.Text = stats.WafersTotal > 0 && stats.WafersDone == stats.WafersTotal ? "로트 완료" : "명령 완료";
+                _message.ForeColor = Color.WhiteSmoke;
+            }
         }
         finally { _busy = false; if (!_closing) ApplySnapshot(_sim.Snapshot); }
     }
@@ -240,7 +258,12 @@ public sealed class MainForm : Form
     });
     private void WaferCompleted(WaferSummary summary) => OnUi(() => { _summaries.Add(summary); _map.Summary = summary; _mapDirty = true; });
     private void AlarmChanged(Alarm _) => OnUi(() => ApplySnapshot(_sim.Snapshot));
-    private void RunCompleted(RunRecord run) => OnUi(() => { _ = RunUiTask(RefreshRunsAsync); });
+    private void RunCompleted(RunRecord run) => OnUi(() =>
+    {
+        _message.Text = "로트 완료";
+        _message.ForeColor = Color.WhiteSmoke;
+        _ = RunUiTask(RefreshRunsAsync);
+    });
     private void ResetRunView()
     {
         while (_pendingSteps.TryDequeue(out _)) { }
@@ -342,20 +365,40 @@ public sealed class MainForm : Form
     }
     public void ApplyCompletedRun()
     {
+        LoadCapturedState(_sim.Snapshot, _sim.Log, _measurements, _summaries);
+        var stats = _sim.Snapshot.Stats;
+        if (stats.WafersTotal > 0 && stats.WafersDone == stats.WafersTotal)
+        {
+            _message.Text = "로트 완료";
+            _message.ForeColor = Color.WhiteSmoke;
+        }
+    }
+    public void LoadCapturedState(EquipmentSnapshot snapshot, IReadOnlyList<StepEvent> events,
+        IReadOnlyList<MeasurementResult> measurements, IReadOnlyList<WaferSummary> summaries)
+    {
         _events.Clear(); _eventIndexes.Clear();
-        foreach (var ev in _sim.Log.GroupBy(x => x.Seq).Select(g => g.Last()).TakeLast(5000))
+        foreach (var ev in events.GroupBy(x => x.Seq).Select(g => g.Last()).TakeLast(5000))
         { _eventIndexes[ev.Seq] = _events.Count; _events.Add(ev); }
         RefreshLog(); _gantt.Steps = _events.OrderBy(x => x.Start).ToArray(); _ganttDirty = true;
-        ApplySnapshot(_sim.Snapshot);
+        _measurements.Clear(); _measurements.AddRange(measurements.TakeLast(5000)); _map.Measurements = _measurements;
+        _summaries.Clear(); _summaries.AddRange(summaries); _map.Summary = _summaries.LastOrDefault();
+        ApplySnapshot(snapshot);
+        if (snapshot.State == EquipmentState.Running) _message.Text = "진행 중";
     }
     public void LoadCompletedData(IReadOnlyList<MeasurementResult> measurements, IReadOnlyList<WaferSummary> summaries)
     {
         _measurements.Clear(); _measurements.AddRange(measurements.TakeLast(5000)); _map.Measurements = _measurements;
         _summaries.Clear(); _summaries.AddRange(summaries); _map.Summary = _summaries.LastOrDefault(); _mapDirty = true;
     }
+    public void LoadRunHistoryForScreenshot()
+    {
+        if (Services.Store is not { } store) return;
+        var runs = Task.Run(() => store.ListRunsAsync(CancellationToken.None)).GetAwaiter().GetResult();
+        ApplyRuns(runs);
+    }
     private async Task SaveRecipeAsync()
     {
-        var error = _recipe.Validate(); if (error is not null) { ShowError(error); return; }
+        var error = _editor.Commit(); if (error is not null) { ShowError(error); return; }
         using var dialog = new SaveFileDialog { Filter = "레시피 JSON (*.json)|*.json", DefaultExt = "json", FileName = "recipe.json" };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         await new RecipeFile().SaveAsync(dialog.FileName, _recipe.Build(), CancellationToken.None);
@@ -368,13 +411,17 @@ public sealed class MainForm : Form
         var recipe = await new RecipeFile().LoadAsync(dialog.FileName, CancellationToken.None);
         var candidate = new RecipeEditModel(); candidate.Load(recipe);
         var error = candidate.Validate(); if (error is not null) { ShowError(error); return; }
-        _recipe.Load(recipe); _grid.Refresh(); _message.Text = "레시피 불러오기 완료";
+        _recipe.Load(recipe); _editor.Reload(); _message.Text = "레시피 불러오기 완료";
     }
     private async Task RefreshRunsAsync()
     {
         if (Services.Store is not { } store) return;
         var runs = await store.ListRunsAsync(CancellationToken.None);
         if (_closing || IsDisposed) return;
+        ApplyRuns(runs);
+    }
+    private void ApplyRuns(IReadOnlyList<RunRecord> runs)
+    {
         var selectedA = _runA.SelectedItem?.ToString(); var selectedB = _runB.SelectedItem?.ToString();
         _runs.Clear(); foreach (var run in runs) _runs[run.RunId] = run;
         _runA.Items.Clear(); _runB.Items.Clear();

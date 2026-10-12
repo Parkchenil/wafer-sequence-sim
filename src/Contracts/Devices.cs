@@ -127,7 +127,18 @@ public interface IInterlock
     DeviceResult CheckVacuumOff();
 }
 
-/// <summary>장치 묶음. 시퀀스 엔진은 이것 하나를 받는다.</summary>
+/// <summary>
+/// 장치 묶음이 실행 맥락을 받는 통로. 엔진이 로트 시작 때 레시피 seed를, 웨이퍼 시작 때 웨이퍼 ID를 넘긴다.
+/// 가상 장치의 난수(측정 잡음·비전 실패)가 레시피 seed에서 파생되고, 가상 SMU가 어느 웨이퍼 분포를 쓸지 알게 된다.
+/// 실장비 구현은 비워 둬도 된다.
+/// </summary>
+public interface IDeviceContext
+{
+    void Reseed(int seed);
+    void SetCurrentWafer(string waferId);
+}
+
+/// <summary>장치 묶음. 시퀀스 엔진은 이것 하나를 받는다. IDeviceContext를 함께 구현하면 엔진이 seed·웨이퍼 ID를 넘긴다.</summary>
 public interface IDeviceSet
 {
     IDigitalIO Io { get; }

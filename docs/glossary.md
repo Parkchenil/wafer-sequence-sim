@@ -4,7 +4,7 @@
 - **UPH (Units Per Hour)** — 시간당 처리 웨이퍼 수. 평균 Tact의 역수로 계산된다(3600 / 평균 Tact초). `RunStats.Uph`.
 - **면저항 (Sheet Resistance, Rs)** — 얇은 막의 면적당 전기 저항. 단위 Ω/sq(옴 퍼 스퀘어). 4점 프로브 측정의 대상 값이며, 근사식 Rs = 4.532 · V/I에 가장자리 보정계수를 곱해 계산한다(`IRsCalculator.RsFromVI`).
 - **4점 프로브 (Four-point probe)** — 한 줄로 배열된 4개 탐침으로 바깥 두 개에 전류를 흘리고 안쪽 두 개로 전압을 읽어 접촉저항의 영향을 없애는 측정법. 이 시뮬레이터의 측정 방식이며, `ISourceMeasureUnit`(전류원·전압계)과 `IProbePosition`(프로브 좌표)이 이에 해당한다.
-- **듀얼 컨피규레이션 (Dual configuration)** — (통합 후 채움)
+- **듀얼 컨피규레이션 (Dual configuration)** — 4개 핀의 전류·전압 역할을 바꿔 두 번 재고 평균해 핀 간격 오차와 가장자리 효과를 줄이는 측정법. 이 시뮬레이터의 반복 측정(ReadingsPerSite)은 같은 구성의 반복이며 듀얼 컨피규레이션은 구현하지 않았다.
 - **인터락 (Interlock)** — 위험한 동작 조합을 사전에 막는 안전 규칙. 이 프로젝트에서는 시퀀스 if문이 아니라 명령 계층의 `IInterlock`(XY 이동·Z 하강·로봇 진입·진공 해제 검사)에서 사유와 함께 거부한다.
 - **역압 (Backpressure)** — 다운스트림(저장 큐)이 밀리면 업스트림(측정)이 대기하는 정책. 저장 큐가 가득 차도 측정값을 버리지 않고 대기·알람(`AlarmCode.SaveQueueFull`)으로 처리한다.
 - **TimeProvider** — .NET의 시간 추상화. 이 프로젝트는 `VirtualTimeProvider` 하나로 모든 시간을 읽는다(DateTime.Now·Stopwatch 금지). Realtime(배속 가능)과 Instant(대기 없이 즉시 완결) 두 모드를 갖는다.
