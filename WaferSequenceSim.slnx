@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/App.Avalonia/App.Avalonia.csproj" />
+    <Project Path="src/App.WinForms/App.WinForms.csproj" />
+    <Project Path="src/Contracts/Contracts.csproj" />
+    <Project Path="src/Core.Measurement/Core.Measurement.csproj" />
+    <Project Path="src/Core.Sequence/Core.Sequence.csproj" />
+    <Project Path="src/Devices/Devices.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tests/Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,9 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+*.db
+*.db-journal
+artifacts/
+.ai/
