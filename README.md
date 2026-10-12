@@ -51,7 +51,7 @@
 | `src/Devices` | 이름 붙은 IO 포인트(`IDigitalIO`) 위의 장치: 축(사다리꼴 프로파일·소프트 리밋·홈잉), Z 헤드 접촉 커플링, SCPI 가상 SMU, **Modbus TCP**(FC1/3/5/6/16 직접 구현) 가상 PLC, 비전·로드포트·로봇·얼라이너, `WaitFor(조건, 타임아웃, 알람코드)` |
 | `src/App.WinForms` | C# WinForms HMI. GDI+ 도식·간트·맵. `--screenshot` 헤드리스 캡처(CI) |
 | `src/App.Avalonia` | 같은 화면을 Avalonia로. 맥 실행·시연용 |
-| `tests/Tests` | xUnit 35건: 시퀀스(결정성·역압·중첩·알람 복구·인터락·Pause/Abort), 측정, 장치(프로파일·커플링·SCPI·Modbus), 조립 통합(프로토콜 경로 포함) |
+| `tests/Tests` | xUnit 66건: 시퀀스(결정성·역압·중첩·알람 복구·인터락·EMO·Pause/Abort·RunId), 측정, 장치(프로파일·커플링·SCPI·Modbus TCP·seed), 조립 통합(인메모리·프로토콜·실시간 경로) |
 
 ## 설계 결정
 
@@ -65,7 +65,7 @@
 
 ```bash
 # .NET 10 SDK
-dotnet test                                   # 35건
+dotnet test                                   # 66건
 dotnet run --project src/App.Avalonia         # 맥·리눅스·윈도우
 dotnet run --project src/App.WinForms         # 윈도우
 dotnet run --project src/App.WinForms -- --screenshot out.png --wafers 2   # 창 없이 PNG 3장
@@ -87,4 +87,4 @@ CI는 ubuntu에서 빌드·테스트하고, windows 러너에서 WinForms를 빌
 
 ## 제작 과정
 
-2026년 10월 12일 저녁, 3시간 안에 끝내는 것을 목표로 했다. 내가 한 것은 계약(`src/Contracts`) 설계와 모듈 경계, 작업 분배, 통합, 검증이다. 구현은 Claude Code로 조율한 작업자 에이전트(Codex) 5명이 모듈별로 병렬로 썼고, 모듈마다 독립 리뷰 에이전트가 코드를 읽어 발견한 것(요약이 호출자 리스트를 공유해 다음 웨이퍼에 지워지는 버그, 같은 RunId 덮어쓰기, 동기 Modbus 읽기가 스냅샷을 막는 문제 등)을 반영했다. 통합에서 내가 직접 고친 것은 정적 초기화 데드락, 즉시 모드 스케줄러, 척 재석 센서 커플링, 대기 헬퍼의 경과 측정이다. 커밋 이력에 순서가 남아 있다.
+2026년 10월 12일 저녁, 3시간 안에 끝내는 것을 목표로 했다. 내가 한 것은 계약(`src/Contracts`) 설계와 모듈 경계, 작업 분배, 통합, 검증이다. 구현은 Claude Code로 조율한 작업자 에이전트(Codex) 5명이 모듈별로 병렬로 썼고, 모듈마다 독립 리뷰 에이전트가 코드를 읽어 발견한 것(요약이 호출자 리스트를 공유해 다음 웨이퍼에 지워지는 버그, 같은 RunId 덮어쓰기, 동기 Modbus 읽기가 스냅샷을 막는 문제 등)을 반영했다. 통합에서 내가 직접 고친 것은 정적 초기화 데드락, 즉시 모드 스케줄러, 척 재석 센서 커플링, 대기 헬퍼의 경과 측정, 엔진이 UI 스레드를 붙잡던 정지, 로드포트 슬롯 점유 기본값이다. 커밋 이력에 순서가 남아 있다.
