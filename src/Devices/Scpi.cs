@@ -35,12 +35,18 @@ public sealed class TcpTransport(TcpClient client) : IDuplexTransport
     public ValueTask DisposeAsync() { reader.Dispose(); writer.Dispose(); client.Dispose(); return ValueTask.CompletedTask; }
     public static async Task<(TcpTransport Client, TcpTransport Server, TcpListener Listener)> CreatePairAsync(CancellationToken ct)
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var listener = new TcpListener(IPAddress.Loopback, 0);
         var client = new TcpClient();
-        await client.ConnectAsync(IPAddress.Loopback, port, ct);
-        var server = await listener.AcceptTcpClientAsync(ct);
-        return (new(client), new(server), listener);
+        try
+        {
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            await client.ConnectAsync(IPAddress.Loopback, port, ct);
+            var server = await listener.AcceptTcpClientAsync(ct);
+            listener.Stop();
+            return (new(client), new(server), listener);
+        }
+        catch { client.Dispose(); listener.Stop(); throw; }
     }
 }
 public sealed class VirtualSmuServer : IAsyncDisposable
@@ -49,58 +55,86 @@ public sealed class VirtualSmuServer : IAsyncDisposable
     private readonly IResistanceField field;
     private readonly IProbePosition probe;
     private readonly TimeProvider clock;
-    private readonly Random random;
+    private Random random;
     private readonly TimeSpan roundTrip;
     private readonly CancellationTokenSource stop = new();
     private readonly Task run;
     private double current;
     private bool outputOn;
+    private int disposed;
     public string CurrentWaferId { get; set; } = "W1";
-    public TimeSpan ReadingTime { get; set; }
+    public TimeSpan ReadingTime { get; private set; }
+    public void Reseed(int seed) => random = new Random(seed);
     public VirtualSmuServer(IDuplexTransport transport, IResistanceField field, IProbePosition probe, TimeProvider clock, Random random, TimeSpan? roundTrip = null)
     { this.transport = transport; this.field = field; this.probe = probe; this.clock = clock; this.random = random; this.roundTrip = roundTrip ?? TimeSpan.FromMilliseconds(5); run = RunAsync(); }
     private async Task RunAsync()
     {
-        try
+        while (!stop.IsCancellationRequested)
         {
-            while (!stop.IsCancellationRequested)
+            string line;
+            try { line = await transport.ReadLineAsync(stop.Token); }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
+            catch (Exception ex) { Console.Error.WriteLine($"SMU 수신 실패: {ex.Message}"); break; }
+            string response;
+            try
             {
-                var line = await transport.ReadLineAsync(stop.Token);
-                string response = "OK";
+                response = "OK";
                 if (line == "*IDN?") response = "VIRTUAL,SMU,1,1";
                 else if (line == "*RST") { current = 0; outputOn = false; }
                 else if (line.StartsWith(":SOUR:CURR ", StringComparison.Ordinal) && double.TryParse(line[11..], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)) current = parsed;
+                else if (line.StartsWith(":SENS:TIME ", StringComparison.Ordinal) && double.TryParse(line[11..], NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) && seconds >= 0) ReadingTime = TimeSpan.FromSeconds(seconds);
                 else if (line == ":OUTP ON") outputOn = true;
                 else if (line == ":OUTP OFF") outputOn = false;
                 else if (line == ":MEAS:VOLT?")
                 {
-                    await Task.Delay(ReadingTime, clock, stop.Token);
-                    response = outputOn ? field.VoltageSample(CurrentWaferId, probe.XUm, probe.YUm, current, random).ToString("R", CultureInfo.InvariantCulture) : "0";
+                    if (!outputOn) response = "ERR:OUTPUT_OFF";
+                    else { await Task.Delay(ReadingTime, clock, stop.Token); response = field.VoltageSample(CurrentWaferId, probe.XUm, probe.YUm, current, random).ToString("R", CultureInfo.InvariantCulture); }
                 }
-                else response = "ERR";
+                else response = "ERR:COMMAND";
                 await Task.Delay(roundTrip, clock, stop.Token);
-                await transport.SendLineAsync(response, stop.Token);
             }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
+            catch (Exception ex) { Console.Error.WriteLine($"SMU 명령 실패: {ex.Message}"); response = "ERR:SERVER"; }
+            try { await transport.SendLineAsync(response, stop.Token); }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
+            catch (Exception ex) { Console.Error.WriteLine($"SMU 응답 실패: {ex.Message}"); break; }
         }
-        catch (OperationCanceledException) { }
-        catch (ChannelClosedException) { }
-        catch (IOException) { }
     }
-    public async ValueTask DisposeAsync() { stop.Cancel(); await transport.DisposeAsync(); try { await run; } catch (OperationCanceledException) { } stop.Dispose(); }
+    public async ValueTask DisposeAsync()
+    { if (Interlocked.Exchange(ref disposed, 1) != 0) return; stop.Cancel(); await transport.DisposeAsync(); await run; stop.Dispose(); }
 }
-public sealed class ScpiSmu(IDuplexTransport transport, VirtualSmuServer? server = null) : ISourceMeasureUnit
+public sealed class ScpiSmu(IDuplexTransport transport, TimeProvider? clock = null, TimeSpan? timeout = null) : ISourceMeasureUnit
 {
     private readonly SemaphoreSlim gate = new(1, 1);
-    public async Task<DeviceResult<string>> QueryAsync(string command, CancellationToken ct)
+    private readonly TimeProvider time = clock ?? TimeProvider.System;
+    private readonly TimeSpan responseTimeout = timeout ?? TimeSpan.FromSeconds(2);
+    private Task<string>? pending;
+    private int staleResponses;
+    public Task<DeviceResult<string>> QueryAsync(string command, CancellationToken ct) => QueryAsync(command, TimeSpan.Zero, ct);
+    /// <summary>extraWait: 서버가 응답 전에 쓰는 시간(측정 시간 등). 응답 타임아웃에 더한다 — 측정 시간이 타임아웃보다 길어도 가짜 타임아웃이 나지 않게.</summary>
+    public async Task<DeviceResult<string>> QueryAsync(string command, TimeSpan extraWait, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
+        var sent = false;
         try
         {
             await transport.SendLineAsync(command, ct);
-            var line = await transport.ReadLineAsync(ct);
-            return line == "ERR" ? DeviceResult<string>.Fail(AlarmCode.SmuOverRange, "SCPI 명령 오류") : DeviceResult<string>.Success(line);
+            sent = true;
+            while (true)
+            {
+                pending ??= transport.ReadLineAsync(CancellationToken.None);
+                var line = await pending.WaitAsync(responseTimeout + extraWait, time is VirtualTimeProvider { Mode: ClockMode.Instant } ? TimeProvider.System : time, ct);
+                pending = null;
+                if (staleResponses > 0) { staleResponses--; continue; }
+                if (line == "ERR:SERVER") return DeviceResult<string>.Fail(AlarmCode.SmuTimeout, "SMU 서버 측정 실패");
+                if (line == "ERR:OUTPUT_OFF") return DeviceResult<string>.Fail(AlarmCode.SmuOverRange, "SMU 출력이 꺼져 있어 측정할 수 없음");
+                if (line.StartsWith("ERR", StringComparison.Ordinal)) return DeviceResult<string>.Fail(AlarmCode.SmuOverRange, "SCPI 명령 오류: " + line);
+                return DeviceResult<string>.Success(line);
+            }
         }
-        catch (IOException) { return DeviceResult<string>.Fail(AlarmCode.SmuTimeout, "SMU 통신 실패"); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { if (sent && pending is not null) staleResponses++; throw; } // 전송 전 취소면 응답도 없다
+        catch (TimeoutException) { if (pending is not null) staleResponses++; return DeviceResult<string>.Fail(AlarmCode.SmuTimeout, "SMU 응답 시간 초과"); }
+        catch (Exception ex) when (ex is IOException or ChannelClosedException or ObjectDisposedException) { return DeviceResult<string>.Fail(AlarmCode.SmuTimeout, "SMU 통신 실패"); }
         finally { gate.Release(); }
     }
     public async Task<DeviceResult> ConfigureAsync(double sourceCurrentA, CancellationToken ct)
@@ -116,8 +150,9 @@ public sealed class ScpiSmu(IDuplexTransport transport, VirtualSmuServer? server
     }
     public async Task<DeviceResult<double>> MeasureVoltageAsync(TimeSpan readingTime, CancellationToken ct)
     {
-        if (server is not null) server.ReadingTime = readingTime;
-        var result = await QueryAsync(":MEAS:VOLT?", ct);
+        var setting = await QueryAsync(":SENS:TIME " + readingTime.TotalSeconds.ToString("R", CultureInfo.InvariantCulture), ct);
+        if (!setting.Ok) return DeviceResult<double>.Fail(setting.Code, setting.Message);
+        var result = await QueryAsync(":MEAS:VOLT?", readingTime, ct);
         if (!result.Ok) return DeviceResult<double>.Fail(result.Code, result.Message);
         return double.TryParse(result.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && double.IsFinite(value)
             ? DeviceResult<double>.Success(value) : DeviceResult<double>.Fail(AlarmCode.SmuOverRange, "전압 응답 범위 초과");

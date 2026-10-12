@@ -29,11 +29,7 @@ public static class Services
         var store = new SqliteResultStore(Path.Combine(directory, "runs.db"));
         store.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
         var engine = new SequenceEngine(devices, new WaitHelper(clock), clock, new RsCalculator(), new SitePatternProvider(), store, new LogDigest());
-        engine.SnapshotChanged += snapshot =>
-        {
-            if (devices.SmuServer is { } smu && snapshot.CurrentWaferId is { } wafer && smu.CurrentWaferId != wafer)
-                smu.CurrentWaferId = wafer;
-        };
+        // 레시피 seed와 웨이퍼 ID는 엔진이 IDeviceContext로 직접 넘긴다(스냅샷 중계 없음)
         return (engine, store);
     }
 }

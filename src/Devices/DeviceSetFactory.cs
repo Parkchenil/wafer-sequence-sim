@@ -4,9 +4,12 @@ using Contracts;
 namespace Devices;
 
 public sealed record DeviceOptions(IoCouplingOptions? IoCoupling = null, double ContactHeightUm = 0, double VisionFailureProbability = 0, TimeSpan? SmuRoundTrip = null);
-public sealed class DeviceBundle : IDeviceSet, IAsyncDisposable
+public sealed class DeviceBundle : IDeviceSet, IDeviceContext, IAsyncDisposable
 {
     private readonly List<IAsyncDisposable> resources = [];
+    private int disposed;
+    public void Reseed(int seed) { SmuServer?.Reseed(seed); if (Vision is SimulatedVision vision) vision.Reseed(unchecked(seed + 1)); }
+    public void SetCurrentWafer(string waferId) { if (SmuServer is not null) SmuServer.CurrentWaferId = waferId; }
     internal void Add(IAsyncDisposable resource) => resources.Add(resource);
     public required IDigitalIO Io { get; init; }
     public required IAxis StageX { get; init; }
@@ -20,7 +23,15 @@ public sealed class DeviceBundle : IDeviceSet, IAsyncDisposable
     public required IProbePosition Probe { get; init; }
     public VirtualSmuServer? SmuServer { get; internal set; }
     public VirtualModbusServer? ModbusServer { get; internal set; }
-    public async ValueTask DisposeAsync() { foreach (var resource in resources) await resource.DisposeAsync(); }
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        foreach (var resource in resources)
+        {
+            try { await resource.DisposeAsync(); }
+            catch (Exception ex) { Console.Error.WriteLine($"장치 해제 실패: {ex.Message}"); }
+        }
+    }
 }
 public static class DeviceSetFactory
 {
@@ -31,9 +42,9 @@ public static class DeviceSetFactory
     {
         o ??= new();
         var physical = new InMemoryDigitalIO(clock, o.IoCoupling);
-        var x = new SimulatedAxis("X", clock, -200_000, 200_000);
-        var y = new SimulatedAxis("Y", clock, -200_000, 200_000);
-        var z = new SimulatedAxis("Z", clock, -10_000, 100_000);
+        var x = new SimulatedAxis("X", clock, -200_000, 200_000, physical);
+        var y = new SimulatedAxis("Y", clock, -200_000, 200_000, physical);
+        var z = new SimulatedAxis("Z", clock, -10_000, 100_000, physical, 1000);
         var contact = new ContactSensorCoupling(z, physical, o.ContactHeightUm);
         IDigitalIO io = physical;
         VirtualModbusServer? modbusServer = null;
@@ -49,7 +60,7 @@ public static class DeviceSetFactory
             else { var pair = InMemoryByteTransport.CreatePair(); client = pair.Client; server = pair.Server; }
             var map = new IoMap(physical.Points);
             modbusServer = new VirtualModbusServer(server, physical, map);
-            io = new ModbusDigitalIO(new ModbusTcpClient(client), map);
+            io = new ModbusDigitalIO(new ModbusTcpClient(client, clock), map);
             resources.Add(client); resources.Add(modbusServer);
         }
         IDuplexTransport smuClient, smuServerTransport;
@@ -61,13 +72,14 @@ public static class DeviceSetFactory
         else { var pair = InMemoryTransport.CreatePair(); smuClient = pair.Client; smuServerTransport = pair.Server; }
         var probe = new ProbePosition(x, y, contact);
         var smuServer = new VirtualSmuServer(smuServerTransport, field, probe, clock, new Random(seed), o.SmuRoundTrip);
+        var loadPort = new SimulatedLoadPort(io, new WaitHelper(clock), clock);
         var bundle = new DeviceBundle
         {
             Io = io, StageX = x, StageY = y, ZAxis = z, Probe = probe,
-            Smu = new ScpiSmu(smuClient, smuServer), SmuServer = smuServer, ModbusServer = modbusServer,
+            Smu = new ScpiSmu(smuClient, clock), SmuServer = smuServer, ModbusServer = modbusServer,
             Vision = new SimulatedVision(clock, new Random(unchecked(seed + 1)), o.VisionFailureProbability),
-            LoadPort = new SimulatedLoadPort(io, new WaitHelper(clock), clock),
-            Robot = new SimulatedRobot(io, clock, physical), Aligner = new SimulatedAligner(clock)
+            LoadPort = loadPort,
+            Robot = new SimulatedRobot(io, clock, physical, loadPort), Aligner = new SimulatedAligner(clock)
         };
         bundle.Add(smuClient); bundle.Add(smuServer);
         foreach (var resource in resources) bundle.Add(resource);

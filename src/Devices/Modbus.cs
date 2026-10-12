@@ -40,10 +40,17 @@ public sealed class TcpByteTransport(TcpClient client) : IByteTransport
     public ValueTask DisposeAsync() { stream.Dispose(); client.Dispose(); return ValueTask.CompletedTask; }
     public static async Task<(TcpByteTransport Client, TcpByteTransport Server, TcpListener Listener)> CreatePairAsync(CancellationToken ct)
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
-        var client = new TcpClient(); await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port, ct);
-        var server = await listener.AcceptTcpClientAsync(ct);
-        return (new(client), new(server), listener);
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        var client = new TcpClient();
+        try
+        {
+            listener.Start();
+            await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port, ct);
+            var server = await listener.AcceptTcpClientAsync(ct);
+            listener.Stop();
+            return (new(client), new(server), listener);
+        }
+        catch { client.Dispose(); listener.Stop(); throw; }
     }
 }
 public sealed class VirtualModbusServer : IAsyncDisposable
@@ -58,18 +65,25 @@ public sealed class VirtualModbusServer : IAsyncDisposable
     { this.transport = transport; this.io = io; coilMap = map.ToDictionary(x => x.Value, x => x.Key); run = RunAsync(); }
     private async Task RunAsync()
     {
-        try
+        while (!stop.IsCancellationRequested)
         {
-            while (!stop.IsCancellationRequested)
+            byte[] request;
+            try { request = await transport.ReceiveAsync(stop.Token); }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
+            catch (Exception ex) { Console.Error.WriteLine($"Modbus 수신 실패: {ex.Message}"); break; }
+            byte[] response;
+            try { response = await HandleAsync(request, stop.Token); }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
+            catch (Exception ex)
             {
-                var request = await transport.ReceiveAsync(stop.Token);
-                var response = await HandleAsync(request, stop.Token);
-                await transport.SendAsync(response, stop.Token);
+                Console.Error.WriteLine($"Modbus 명령 실패: {ex.Message}");
+                response = request.Length >= 8 ? [request[0], request[1], 0, 0, 0, 3, request[6], (byte)(request[7] | 0x80), 4] : [];
             }
+            if (response.Length == 0) continue;
+            try { await transport.SendAsync(response, stop.Token); }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
+            catch (Exception ex) { Console.Error.WriteLine($"Modbus 응답 실패: {ex.Message}"); break; }
         }
-        catch (OperationCanceledException) { }
-        catch (ChannelClosedException) { }
-        catch (IOException) { }
     }
     public async Task<byte[]> HandleAsync(byte[] frame, CancellationToken ct)
     {
@@ -86,14 +100,19 @@ public sealed class VirtualModbusServer : IAsyncDisposable
             else
             {
                 var data = new byte[(count + 7) / 8];
-                for (var i = 0; i < count; i++) if (coilMap.TryGetValue((ushort)(start + i), out var point) && (await io.ReadAsync(point, ct)).Value) data[i / 8] |= (byte)(1 << (i % 8));
-                result = [(byte)data.Length, ..data];
+                var missing = false;
+                for (var i = 0; i < count; i++)
+                {
+                    if (!coilMap.TryGetValue((ushort)(start + i), out var point)) { missing = true; break; }
+                    if ((await io.ReadAsync(point, ct)).Value) data[i / 8] |= (byte)(1 << (i % 8));
+                }
+                result = missing ? [2] : [(byte)data.Length, ..data];
             }
         }
         else if (fc == 5)
         {
-            if (!coilMap.TryGetValue(U(0), out var point) || U(2) is not (0 or 0xFF00)) result = [2];
-            else { await io.WriteAsync(point, U(2) == 0xFF00, ct); result = pdu[..4]; }
+            if (!coilMap.TryGetValue(U(0), out var point) || point.StartsWith("DI_", StringComparison.Ordinal) || U(2) is not (0 or 0xFF00)) result = [2];
+            else { var write = await io.WriteAsync(point, U(2) == 0xFF00, ct); result = write.Ok ? pdu[..4] : [4]; }
         }
         else if (fc == 3)
         {
@@ -114,12 +133,16 @@ public sealed class VirtualModbusServer : IAsyncDisposable
         var length = 2 + result.Length;
         return [frame[0], frame[1], 0, 0, (byte)(length >> 8), (byte)length, frame[6], responseFc, ..result];
     }
-    public async ValueTask DisposeAsync() { stop.Cancel(); await transport.DisposeAsync(); try { await run; } catch (OperationCanceledException) { } stop.Dispose(); }
+    private int disposed;
+    public async ValueTask DisposeAsync() { if (Interlocked.Exchange(ref disposed, 1) != 0) return; stop.Cancel(); await transport.DisposeAsync(); await run; stop.Dispose(); }
 }
-public sealed class ModbusTcpClient(IByteTransport transport)
+public sealed class ModbusTcpClient(IByteTransport transport, TimeProvider? clock = null, TimeSpan? timeout = null)
 {
     private ushort transaction;
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly TimeProvider time = clock ?? TimeProvider.System;
+    private readonly TimeSpan responseTimeout = timeout ?? TimeSpan.FromSeconds(2);
+    private Task<byte[]>? pending;
     public async Task<byte[]> RequestAsync(byte function, byte[] pdu, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
@@ -127,9 +150,15 @@ public sealed class ModbusTcpClient(IByteTransport transport)
         {
             var id = ++transaction; var len = pdu.Length + 2;
             await transport.SendAsync([(byte)(id >> 8), (byte)id, 0, 0, (byte)(len >> 8), (byte)len, 1, function, ..pdu], ct);
-            var response = await transport.ReceiveAsync(ct);
-            if (response.Length < 9 || BinaryPrimitives.ReadUInt16BigEndian(response) != id) throw new IOException("Modbus 응답 오류");
-            return response[7..];
+            while (true)
+            {
+                pending ??= transport.ReceiveAsync(CancellationToken.None);
+                var response = await pending.WaitAsync(responseTimeout, time is VirtualTimeProvider { Mode: ClockMode.Instant } ? TimeProvider.System : time, ct);
+                pending = null;
+                if (response.Length < 9) throw new IOException("Modbus 응답 길이 오류");
+                if (BinaryPrimitives.ReadUInt16BigEndian(response) != id) continue;
+                return response[7..];
+            }
         }
         finally { gate.Release(); }
     }
@@ -149,14 +178,15 @@ public sealed class ModbusDigitalIO(ModbusTcpClient client, IoMap map) : IDigita
     public IReadOnlyList<string> Points => map.Keys.ToArray();
     public async Task<DeviceResult<bool>> ReadAsync(string point, CancellationToken ct)
     {
-        if (!map.TryGetValue(point, out var address)) return DeviceResult<bool>.Fail(AlarmCode.CommTimeout, "IO 주소 없음");
+        if (!map.TryGetValue(point, out var address)) return DeviceResult<bool>.Fail(AlarmCode.ConfigError, "IO 주소 없음");
         try { var response = await client.ReadCoilsAsync(address, 1, ct); return response[0] == 1 ? DeviceResult<bool>.Success((response[2] & 1) != 0) : DeviceResult<bool>.Fail(AlarmCode.CommTimeout, "Modbus 예외 응답"); }
-        catch (IOException) { return DeviceResult<bool>.Fail(AlarmCode.CommTimeout, "Modbus 읽기 실패"); }
+        catch (Exception ex) when (ex is IOException or TimeoutException or ChannelClosedException or ObjectDisposedException) { return DeviceResult<bool>.Fail(AlarmCode.CommTimeout, "Modbus 읽기 실패"); }
     }
     public async Task<DeviceResult> WriteAsync(string point, bool value, CancellationToken ct)
     {
-        if (!map.TryGetValue(point, out var address)) return DeviceResult.Fail(AlarmCode.CommTimeout, "IO 주소 없음");
+        if (!map.TryGetValue(point, out var address)) return DeviceResult.Fail(AlarmCode.ConfigError, "IO 주소 없음");
+        if (point.StartsWith("DI_", StringComparison.Ordinal)) return DeviceResult.Fail(AlarmCode.ConfigError, "입력 IO 쓰기 금지");
         try { var response = await client.WriteCoilAsync(address, value, ct); return response[0] == 5 ? DeviceResult.Success : DeviceResult.Fail(AlarmCode.CommTimeout, "Modbus 예외 응답"); }
-        catch (IOException) { return DeviceResult.Fail(AlarmCode.CommTimeout, "Modbus 쓰기 실패"); }
+        catch (Exception ex) when (ex is IOException or TimeoutException or ChannelClosedException or ObjectDisposedException) { return DeviceResult.Fail(AlarmCode.CommTimeout, "Modbus 쓰기 실패"); }
     }
 }

@@ -47,12 +47,7 @@ internal static class Composition
         store.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         var engine = new SequenceEngine(devices, new WaitHelper(clock), clock, new RsCalculator(), new SitePatternProvider(), store, new LogDigest());
-        // 가상 SMU가 웨이퍼별 분포를 쓰도록 현재 웨이퍼 ID를 넘긴다
-        engine.SnapshotChanged += s =>
-        {
-            if (devices.SmuServer is { } smu && s.CurrentWaferId is { } wafer && smu.CurrentWaferId != wafer)
-                smu.CurrentWaferId = wafer;
-        };
+        // 레시피 seed와 웨이퍼 ID는 엔진이 IDeviceContext로 직접 넘긴다(스냅샷 중계 없음)
         return (clock, devices, store, dbPath, engine);
     }
 }

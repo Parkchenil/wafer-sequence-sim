@@ -47,7 +47,7 @@ public sealed class InMemoryDigitalIO : IDigitalIO
         {
             if (values[IoPoints.VacChuckOn] && clock.GetTimestamp() >= vacuumDue) values[IoPoints.VacChuckSense] = values[IoPoints.ChuckWaferPresent];
             if (values[IoPoints.LoadPortDoorOpen] && clock.GetTimestamp() >= doorDue) values[IoPoints.LoadPortDoorOpened] = true;
-            return Task.FromResult(values.TryGetValue(point, out var value) ? DeviceResult<bool>.Success(value) : DeviceResult<bool>.Fail(AlarmCode.CommTimeout, $"알 수 없는 IO 포인트: {point}"));
+            return Task.FromResult(values.TryGetValue(point, out var value) ? DeviceResult<bool>.Success(value) : DeviceResult<bool>.Fail(AlarmCode.ConfigError, $"알 수 없는 IO 포인트: {point}"));
         }
     }
     public Task<DeviceResult> WriteAsync(string point, bool value, CancellationToken ct)
@@ -55,7 +55,8 @@ public sealed class InMemoryDigitalIO : IDigitalIO
         ct.ThrowIfCancellationRequested();
         lock (gate)
         {
-            if (!values.ContainsKey(point)) return Task.FromResult(DeviceResult.Fail(AlarmCode.CommTimeout, $"알 수 없는 IO 포인트: {point}"));
+            if (!values.ContainsKey(point)) return Task.FromResult(DeviceResult.Fail(AlarmCode.ConfigError, $"알 수 없는 IO 포인트: {point}"));
+            if (point.StartsWith("DI_", StringComparison.Ordinal)) return Task.FromResult(DeviceResult.Fail(AlarmCode.ConfigError, $"입력 IO 쓰기 금지: {point}"));
             values[point] = value;
             if (point == IoPoints.VacChuckOn)
             {
@@ -85,6 +86,8 @@ public sealed class SimulatedAxis : IAxis
 {
     private readonly TimeProvider clock;
     private readonly double minUm, maxUm;
+    private readonly IDigitalIO? io;
+    private readonly double homeUm;
     private readonly object gate = new();
     private CancellationTokenSource? motion;
     private double position;
@@ -92,18 +95,39 @@ public sealed class SimulatedAxis : IAxis
     public string Name { get; }
     public double PositionUm { get { lock (gate) return position; } }
     public event Action<double>? PositionChanged;
-    public SimulatedAxis(string name, TimeProvider clock, double minUm, double maxUm)
-    { Name = name; this.clock = clock; this.minUm = minUm; this.maxUm = maxUm; }
+    public SimulatedAxis(string name, TimeProvider clock, double minUm, double maxUm, IDigitalIO? io = null, double homeUm = 0)
+    { Name = name; this.clock = clock; this.minUm = minUm; this.maxUm = maxUm; this.io = io; this.homeUm = Math.Clamp(homeUm, minUm, maxUm); }
     public Task<DeviceResult> ServoOnAsync(CancellationToken ct) { ct.ThrowIfCancellationRequested(); lock (gate) servo = true; return Task.FromResult(DeviceResult.Success); }
     public async Task<DeviceResult> HomeAsync(TimeSpan timeout, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        lock (gate) { if (!servo) return DeviceResult.Fail(AlarmCode.ServoOff, "서보 꺼짐"); }
-        if (timeout < TimeSpan.Zero) return DeviceResult.Fail(AlarmCode.AxisTimeout, "홈 시간 초과");
-        lock (gate) { position = Math.Clamp(0, minUm, maxUm); homed = true; }
-        PositionChanged?.Invoke(PositionUm);
-        await Task.CompletedTask;
-        return DeviceResult.Success;
+        if (!servo) return DeviceResult.Fail(AlarmCode.ServoOff, "서보 꺼짐 상태");
+        var start = PositionUm;
+        var total = TravelTime(homeUm - start, 100, 500);
+        var allowed = TimeSpan.FromTicks(Math.Min(Math.Max(0, timeout.Ticks), total.Ticks));
+        CancellationTokenSource own;
+        lock (gate) { motion?.Cancel(); motion = own = CancellationTokenSource.CreateLinkedTokenSource(ct); moving = true; homed = false; }
+        var started = clock.GetTimestamp();
+        try
+        {
+            var steps = Math.Clamp((int)Math.Ceiling(allowed.TotalMilliseconds / 33), 2, 200);
+            for (var i = 1; i <= steps; i++)
+            {
+                var previous = allowed.Ticks * (i - 1) / steps;
+                var next = allowed.Ticks * i / steps;
+                await Task.Delay(TimeSpan.FromTicks(next - previous), clock, own.Token);
+                if (io is not null && (await io.ReadAsync(IoPoints.Emo, own.Token)).Value) return DeviceResult.Fail(AlarmCode.Emo, "비상 정지 입력");
+                lock (gate) position = start + (homeUm - start) * (total == TimeSpan.Zero ? 1 : ProfileDistance(next / (double)TimeSpan.TicksPerSecond, total.TotalSeconds, Math.Abs(homeUm - start) / 1000, 100, 500));
+                PositionChanged?.Invoke(PositionUm);
+            }
+            var remaining = allowed - clock.GetElapsedTime(started);
+            if (remaining > TimeSpan.Zero) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds)), clock, own.Token);
+            if (allowed < total) return DeviceResult.Fail(AlarmCode.AxisTimeout, "홈 이동 시간 초과");
+            lock (gate) homed = true;
+            return DeviceResult.Success;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return DeviceResult.Fail(AlarmCode.AxisStopped, "홈 이동 정지"); }
+        finally { lock (gate) { if (ReferenceEquals(motion, own)) { moving = false; motion = null; } } own.Dispose(); }
     }
     public static TimeSpan TravelTime(double distanceUm, double speedMmPerS, double accelMmPerS2)
     {
@@ -124,20 +148,25 @@ public sealed class SimulatedAxis : IAxis
         var allowed = timeout < total ? TimeSpan.FromTicks(Math.Max(0, timeout.Ticks)) : total;
         CancellationTokenSource own;
         lock (gate) { motion?.Cancel(); motion = own = CancellationTokenSource.CreateLinkedTokenSource(ct); moving = true; }
+        var started = clock.GetTimestamp();
         try
         {
-            for (var i = 1; i <= 20; i++)
+            var steps = Math.Clamp((int)Math.Ceiling(allowed.TotalMilliseconds / 33), 2, 200);
+            for (var i = 1; i <= steps; i++)
             {
-                var next = TimeSpan.FromTicks(allowed.Ticks * i / 20);
-                var prev = TimeSpan.FromTicks(allowed.Ticks * (i - 1) / 20);
+                var next = TimeSpan.FromTicks(allowed.Ticks * i / steps);
+                var prev = TimeSpan.FromTicks(allowed.Ticks * (i - 1) / steps);
                 await Task.Delay(next - prev, clock, own.Token);
+                if (io is not null && (await io.ReadAsync(IoPoints.Emo, own.Token)).Value) return DeviceResult.Fail(AlarmCode.Emo, "비상 정지 입력");
                 lock (gate) position = start + (targetUm - start) * (total == TimeSpan.Zero ? 1 : ProfileDistance(next.TotalSeconds, total.TotalSeconds, Math.Abs(targetUm - start) / 1000, speedMmPerS, accelMmPerS2));
                 PositionChanged?.Invoke(PositionUm);
             }
+            var remaining = allowed - clock.GetElapsedTime(started);
+            if (remaining > TimeSpan.Zero) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds)), clock, own.Token);
             return allowed < total ? DeviceResult.Fail(AlarmCode.AxisTimeout, "축 이동 시간 초과") : DeviceResult.Success;
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return DeviceResult.Fail(AlarmCode.AxisTimeout, "축 이동 정지됨"); }
-        finally { lock (gate) { moving = false; if (ReferenceEquals(motion, own)) motion = null; } own.Dispose(); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return DeviceResult.Fail(AlarmCode.AxisStopped, "축 이동 정지"); }
+        finally { lock (gate) { if (ReferenceEquals(motion, own)) { moving = false; motion = null; } } own.Dispose(); }
     }
     private static double ProfileDistance(double t, double total, double d, double v, double a)
     {
