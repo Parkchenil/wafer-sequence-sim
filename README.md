@@ -10,10 +10,19 @@
 
 ## 화면
 
+![WinForms 진행 중](docs/images/winforms-running.png)
+
+위는 GitHub Actions의 윈도우 러너가 WinForms 앱을 진짜 엔진으로 돌리다 첫 웨이퍼 네 번째 사이트를 측정하는 순간에 `DrawToBitmap`으로 저장한 화면이다(사람 손을 거치지 않은 캡처).
+
+![시연](docs/images/demo-avalonia.gif)
+
+위는 맥에서 Avalonia 화면으로 로트를 시작한 직후 40초를 녹화한 것이다([mp4](docs/images/demo-avalonia.mp4)). 아래는 정지 화면이다.
+
 | WinForms (CI 윈도우 러너가 헤드리스로 캡처) | Avalonia (맥에서 실행) |
 | --- | --- |
-| ![WinForms 메인](docs/images/winforms-main.png) | ![Avalonia 메인](docs/images/avalonia-main.png) |
+| ![WinForms 완료](docs/images/winforms-main.png) | ![Avalonia 메인](docs/images/avalonia-main.png) |
 | ![WinForms 웨이퍼 맵](docs/images/winforms-map.png) | ![Avalonia 웨이퍼 맵](docs/images/avalonia-map.png) |
+| ![WinForms 통계](docs/images/winforms-stats.png) | ![Avalonia 통계](docs/images/avalonia-stats.png) |
 
 화면 구성은 둘 다 같다. 상단 지표(상태·시뮬레이션 시간·평균 Tact·UPH·진행·저장 큐·알람), 왼쪽 레시피·조작, 가운데 **2D 도식**(로드포트·로봇·얼라이너·척 위 측정 사이트·스테이지 십자선·Z 헤드 측면도·상태등)과 **모듈 간트 차트**(행=모듈, 막대=단계, 빗금=대기), 오른쪽 로그·웨이퍼 맵·통계(단계별 누적, 두 실행 비교)·알람(Ack)·장치 상태 탭이다.
 
