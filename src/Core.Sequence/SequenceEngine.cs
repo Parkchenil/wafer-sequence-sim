@@ -122,6 +122,12 @@ public sealed class SequenceEngine : ISimulator
         try
         {
             if (_store is not null) await _store.InitializeAsync(token);
+            // 준비: 홈 위치(Z=0)는 접촉 높이이므로 로봇이 들어오기 전에 Z를 안전 높이로 올린다(인터락 전제)
+            if (_d.ZAxis.PositionUm < recipe.ZSafeHeightUm)
+            {
+                var lift = await Step("", null, ModuleId.ZHead, PhaseKind.LiftZ, c => _d.ZAxis.MoveAbsoluteAsync(recipe.ZSafeHeightUm, recipe.TravelSpeedMmPerS, recipe.AccelMmPerS2, TimeSpan.FromSeconds(30), c), token);
+                if (!lift.Ok) return lift;
+            }
             var map = await Step("", null, ModuleId.LoadPort, PhaseKind.MapSlots, async c => { var open = await _d.LoadPort.OpenAsync(TimeSpan.FromSeconds(10), c); if (!open.Ok) return open; var slots = await _d.LoadPort.MapSlotsAsync(TimeSpan.FromSeconds(1), c); return slots.Ok ? DeviceResult.Success : DeviceResult.Fail(slots.Code, slots.Message); }, token); if (!map.Ok) return map;
             if (recipe.Save == SaveMode.Async) { channel = Channel.CreateBounded<WaferSummary>(new BoundedChannelOptions(recipe.SaveQueueCapacity) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true }); consumer = Consume(channel.Reader, token); }
             for (int i = 1; i <= waferCount; i++)

@@ -6,16 +6,17 @@ public sealed class WaitHelper(TimeProvider clock) : IWaitHelper
 {
     public async Task<DeviceResult> WaitForAsync(Func<CancellationToken, Task<bool>> condition, TimeSpan pollInterval, TimeSpan timeout, AlarmCode onTimeout, string what, CancellationToken ct)
     {
-        var elapsed = TimeSpan.Zero;
+        // 경과는 명목 폴링 간격의 합이 아니라 시계로 잰다 — 배속·타이머 해상도 때문에 Delay가 요청보다 짧게 돌아올 수 있다
+        var start = clock.GetTimestamp();
         while (true)
         {
             ct.ThrowIfCancellationRequested();
             if (await condition(ct)) return DeviceResult.Success;
+            var elapsed = clock.GetElapsedTime(start);
             if (elapsed >= timeout) return DeviceResult.Fail(onTimeout, $"{what} 대기 시간 초과 ({timeout})");
             var step = pollInterval > TimeSpan.Zero ? pollInterval : TimeSpan.FromMilliseconds(1);
             step = TimeSpan.FromTicks(Math.Min(step.Ticks, (timeout - elapsed).Ticks));
             await Task.Delay(step, clock, ct);
-            elapsed += step;
         }
     }
 }
@@ -156,15 +157,20 @@ public sealed class SimulatedAxis : IAxis
 
 public sealed class ContactSensorCoupling
 {
+    private volatile bool inContact;
+    /// <summary>마지막으로 계산된 접촉 상태. 스냅샷·애니메이션은 IO를 다시 읽지 않고 이 값을 본다(프로토콜 경로에서 동기 읽기 금지).</summary>
+    public bool InContact => inContact;
     public ContactSensorCoupling(SimulatedAxis z, InMemoryDigitalIO io, double contactHeightUm = 0)
     {
-        z.PositionChanged += p => io.Force(IoPoints.ProbeContact, p <= contactHeightUm);
-        io.Force(IoPoints.ProbeContact, z.PositionUm <= contactHeightUm);
+        z.PositionChanged += p => { inContact = p <= contactHeightUm; io.Force(IoPoints.ProbeContact, inContact); };
+        inContact = z.PositionUm <= contactHeightUm;
+        io.Force(IoPoints.ProbeContact, inContact);
     }
 }
-public sealed class ProbePosition(IAxis x, IAxis y, IDigitalIO io) : IProbePosition
+/// <summary>프로브 위치 공급원. 접촉 상태는 커플링 캐시에서 읽는다 — IO(특히 Modbus) 동기 읽기는 스냅샷 경로를 막는다.</summary>
+public sealed class ProbePosition(IAxis x, IAxis y, ContactSensorCoupling contact) : IProbePosition
 {
     public double XUm => x.PositionUm;
     public double YUm => y.PositionUm;
-    public bool InContact => io.ReadAsync(IoPoints.ProbeContact, CancellationToken.None).GetAwaiter().GetResult().Value;
+    public bool InContact => contact.InContact;
 }

@@ -40,23 +40,29 @@ public sealed class SimulatedLoadPort(IDigitalIO io, IWaitHelper wait, TimeProvi
     public async Task<DeviceResult<IReadOnlyList<int>>> MapSlotsAsync(TimeSpan mappingTime, CancellationToken ct)
     { await Task.Delay(mappingTime, clock, ct); return DeviceResult<IReadOnlyList<int>>.Success(slots ?? [1]); }
 }
-public sealed class SimulatedRobot(IDigitalIO io, TimeProvider clock) : IRobot
+/// <summary>로봇. physical(장비 물리 IO)이 있으면 웨이퍼를 척에 놓고 집을 때 DI_CHUCK_PRESENT 센서를 바꾼다(진공 확인의 전제).</summary>
+public sealed class SimulatedRobot(IDigitalIO io, TimeProvider clock, InMemoryDigitalIO? physical = null) : IRobot
 {
     public bool HoldingWafer { get; private set; }
     public bool Extended { get; private set; }
-    private async Task<DeviceResult> Act(TimeSpan moveTime, bool needsWafer, bool resultingHold, CancellationToken ct)
+    private async Task<DeviceResult> Act(TimeSpan moveTime, bool needsWafer, bool resultingHold, CancellationToken ct, bool? chuckPresentAfter = null)
     {
         if (needsWafer && !HoldingWafer) return DeviceResult.Fail(AlarmCode.RobotCollisionRisk, "로봇에 웨이퍼 없음");
         if (!needsWafer && HoldingWafer) return DeviceResult.Fail(AlarmCode.RobotCollisionRisk, "로봇이 이미 웨이퍼 보유 중");
         Extended = true; await io.WriteAsync(IoPoints.RobotExtended, true, ct);
-        try { await Task.Delay(moveTime, clock, ct); HoldingWafer = resultingHold; return DeviceResult.Success; }
+        try
+        {
+            await Task.Delay(moveTime, clock, ct); HoldingWafer = resultingHold;
+            if (chuckPresentAfter is { } present) physical?.Force(IoPoints.ChuckWaferPresent, present);
+            return DeviceResult.Success;
+        }
         finally { Extended = false; await io.WriteAsync(IoPoints.RobotExtended, false, CancellationToken.None); }
     }
     public Task<DeviceResult> PickFromSlotAsync(int slot, TimeSpan moveTime, CancellationToken ct) => Act(moveTime, false, true, ct);
     public Task<DeviceResult> PlaceOnAlignerAsync(TimeSpan moveTime, CancellationToken ct) => Act(moveTime, true, false, ct);
     public Task<DeviceResult> PickFromAlignerAsync(TimeSpan moveTime, CancellationToken ct) => Act(moveTime, false, true, ct);
-    public Task<DeviceResult> PlaceOnChuckAsync(TimeSpan moveTime, CancellationToken ct) => Act(moveTime, true, false, ct);
-    public Task<DeviceResult> PickFromChuckAsync(TimeSpan moveTime, CancellationToken ct) => Act(moveTime, false, true, ct);
+    public Task<DeviceResult> PlaceOnChuckAsync(TimeSpan moveTime, CancellationToken ct) => Act(moveTime, true, false, ct, chuckPresentAfter: true);
+    public Task<DeviceResult> PickFromChuckAsync(TimeSpan moveTime, CancellationToken ct) => Act(moveTime, false, true, ct, chuckPresentAfter: false);
     public Task<DeviceResult> ReturnToSlotAsync(int slot, TimeSpan moveTime, CancellationToken ct) => Act(moveTime, true, false, ct);
 }
 public sealed class SimulatedAligner(TimeProvider clock) : IAligner

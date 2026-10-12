@@ -34,7 +34,7 @@ public static class DeviceSetFactory
         var x = new SimulatedAxis("X", clock, -200_000, 200_000);
         var y = new SimulatedAxis("Y", clock, -200_000, 200_000);
         var z = new SimulatedAxis("Z", clock, -10_000, 100_000);
-        _ = new ContactSensorCoupling(z, physical, o.ContactHeightUm);
+        var contact = new ContactSensorCoupling(z, physical, o.ContactHeightUm);
         IDigitalIO io = physical;
         VirtualModbusServer? modbusServer = null;
         var resources = new List<IAsyncDisposable>();
@@ -59,7 +59,7 @@ public static class DeviceSetFactory
             smuClient = pair.Client; smuServerTransport = pair.Server; resources.Add(new ListenerResource(pair.Listener));
         }
         else { var pair = InMemoryTransport.CreatePair(); smuClient = pair.Client; smuServerTransport = pair.Server; }
-        var probe = new ProbePosition(x, y, io);
+        var probe = new ProbePosition(x, y, contact);
         var smuServer = new VirtualSmuServer(smuServerTransport, field, probe, clock, new Random(seed), o.SmuRoundTrip);
         var bundle = new DeviceBundle
         {
@@ -67,7 +67,7 @@ public static class DeviceSetFactory
             Smu = new ScpiSmu(smuClient, smuServer), SmuServer = smuServer, ModbusServer = modbusServer,
             Vision = new SimulatedVision(clock, new Random(unchecked(seed + 1)), o.VisionFailureProbability),
             LoadPort = new SimulatedLoadPort(io, new WaitHelper(clock), clock),
-            Robot = new SimulatedRobot(io, clock), Aligner = new SimulatedAligner(clock)
+            Robot = new SimulatedRobot(io, clock, physical), Aligner = new SimulatedAligner(clock)
         };
         bundle.Add(smuClient); bundle.Add(smuServer);
         foreach (var resource in resources) bundle.Add(resource);

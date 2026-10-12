@@ -19,9 +19,9 @@ public sealed class EquipmentView : Control
         var scale = Math.Min(w / 750, h / 310); var port = new Rect(24 * scale, 48 * scale, 85 * scale, 225 * scale);
         c.DrawRectangle(new SolidColorBrush(Color.Parse("#22354A")), new Pen(Brushes.SlateGray, 1), port);
         Label(c, "LOAD PORT", port.X, 18 * scale);
-        foreach (var wafer in s.Wafers.Take(12))
+        foreach (var wafer in s.Wafers.Take(25))
         {
-            var y = port.Y + (wafer.Slot - 0.5) * port.Height / Math.Max(12, s.Wafers.Count);
+            var y = port.Y + (wafer.Slot - 0.5) * port.Height / Math.Max(1, Math.Min(25, s.Wafers.Count));
             var brush = wafer.Status switch { WaferStatus.Saved => Brushes.MediumSeaGreen, WaferStatus.Processing => Brushes.Gold, WaferStatus.Failed => Brushes.OrangeRed, _ => Brushes.SlateGray };
             c.DrawLine(new Pen(brush, 5), new Point(port.X + 10, y), new Point(port.Right - 10, y));
         }
@@ -37,7 +37,7 @@ public sealed class EquipmentView : Control
         var cx = 455 * scale; var radius = 105 * scale;
         c.DrawEllipse(new SolidColorBrush(Color.Parse("#20384D")), new Pen(Brushes.SteelBlue, 2), new Point(cx, cy), radius, radius);
         Label(c, "CHUCK / STAGE", 401 * scale, 18 * scale);
-        var diameter = 300.0;
+        var diameter = Services.Simulator.CurrentRecipe?.WaferDiameterMm ?? 300.0;
         var current = s.Wafers.FirstOrDefault(x => x.WaferId == s.CurrentWaferId);
         for (var i = 0; i < s.Sites.Count; i++)
         {
@@ -55,6 +55,6 @@ public sealed class EquipmentView : Control
         c.DrawEllipse(s.Motion.ProbeInContact ? Brushes.Red : Brushes.Gray, null, new Point(zx, zy + 13 * scale), 4 * scale, 4 * scale);
         Label(c, $"{s.Motion.ZUm:F0} µm", zx - 27 * scale, 270 * scale);
         var lights = new[] { ("VAC", s.Motion.VacuumOn), ("CONF", s.Motion.VacuumConfirmed), ("LAMP", s.Motion.LampOn), ("FOCUS", s.Motion.CameraFocused), ("DOOR", s.Motion.LoadPortDoorOpen), ("EMO", s.ActiveAlarms.Any(a => a.Code == AlarmCode.Emo)) };
-        for (var i = 0; i < lights.Length; i++) { var x = 15 * scale + i * 90 * scale; c.DrawEllipse(lights[i].Item2 ? (i == 5 ? Brushes.Red : Brushes.MediumSeaGreen) : Brushes.DimGray, null, new Point(x + 6 * scale, h - 18 * scale), 5 * scale, 5 * scale); Label(c, lights[i].Item1, x + 17 * scale, h - 27 * scale, 11); }
+        for (var i = 0; i < lights.Length; i++) { var x = 15 * scale + i * 90 * scale; c.DrawEllipse(lights[i].Item2 ? (i == 5 ? Brushes.Orange : Brushes.MediumSeaGreen) : Brushes.DimGray, null, new Point(x + 6 * scale, h - 18 * scale), 5 * scale, 5 * scale); Label(c, lights[i].Item1, x + 17 * scale, h - 27 * scale, 11); }
     }
 }

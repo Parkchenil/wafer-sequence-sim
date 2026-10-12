@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using Contracts;
 
 namespace App.WinForms;
@@ -7,8 +8,45 @@ public sealed class RecipeEditModel
 {
     public RecipeDto Recipe { get; private set; } = new();
     public RecipeDto Build() => Recipe;
+    public void Load(RecipeDto recipe) => Recipe = recipe;
     public void Reset() => Recipe = new RecipeDto();
     private void Set(Func<RecipeDto, RecipeDto> change) => Recipe = change(Recipe);
+    public string? Validate()
+    {
+        var r = Recipe;
+        if (r.SchemaVersion != 1) return "SchemaVersion: 지원 버전은 1임";
+        if (string.IsNullOrWhiteSpace(r.Name)) return "Name: 이름이 필요함";
+        if (!Positive(r.WaferDiameterMm)) return "WaferDiameterMm: 양수여야 함";
+        if (!double.IsFinite(r.EdgeExclusionMm) || r.EdgeExclusionMm < 0 || r.EdgeExclusionMm >= r.WaferDiameterMm / 2) return "EdgeExclusionMm: 0 이상, 반지름 미만이어야 함";
+        if (r.ReadingsPerSite < 1) return "ReadingsPerSite: 1 이상이어야 함";
+        if (!NonNegative(r.ReadingTime)) return "ReadingTimeMs: 0 이상이어야 함";
+        if (!Positive(r.SourceCurrentA)) return "SourceCurrentA: 양수여야 함";
+        if (!Positive(r.TravelSpeedMmPerS)) return "TravelSpeedMmPerS: 양수여야 함";
+        if (!Positive(r.AccelMmPerS2)) return "AccelMmPerS2: 양수여야 함";
+        if (!Positive(r.ZApproachSpeedMmPerS)) return "ZApproachSpeedMmPerS: 양수여야 함";
+        if (!Positive(r.ZStepUm)) return "ZStepUm: 양수여야 함";
+        if (!Positive(r.ZSafeHeightUm)) return "ZSafeHeightUm: 양수여야 함";
+        if (!Positive(r.ZLiftAfterMeasureUm)) return "ZLiftAfterMeasureUm: 양수여야 함";
+        if (!NonNegative(r.ContactDetectTimeout)) return "ContactDetectTimeoutMs: 0 이상이어야 함";
+        if (!double.IsFinite(r.ContactRetryProbability) || r.ContactRetryProbability is < 0 or > 1) return "ContactRetryProbability: 0~1이어야 함";
+        if (r.ContactMaxRetry < 0) return "ContactMaxRetry: 0 이상이어야 함";
+        if (!NonNegative(r.VacuumCheckWait)) return "VacuumCheckWaitMs: 0 이상이어야 함";
+        if (r.VacuumCheckCount < 1) return "VacuumCheckCount: 1 이상이어야 함";
+        if (!NonNegative(r.IlluminationWait)) return "IlluminationWaitMs: 0 이상이어야 함";
+        if (!NonNegative(r.AutoFocusWait)) return "AutoFocusWaitMs: 0 이상이어야 함";
+        if (!NonNegative(r.MapInspectTime)) return "MapInspectTimeMs: 0 이상이어야 함";
+        if (!NonNegative(r.RobotMoveTime)) return "RobotMoveTimeMs: 0 이상이어야 함";
+        if (!NonNegative(r.AlignTime)) return "AlignTimeMs: 0 이상이어야 함";
+        if (r.SaveQueueCapacity < 1) return "SaveQueueCapacity: 1 이상이어야 함";
+        if (!NonNegative(r.SaveWriteTime)) return "SaveWriteTimeMs: 0 이상이어야 함";
+        if (!Positive(r.TimeScale)) return "TimeScale: 양수여야 함";
+        if (r.Pattern == SitePattern.Custom && r.CustomSites.Count == 0) return "CustomSitesText: 사이트가 필요함";
+        var radiusUm = (r.WaferDiameterMm / 2 - r.EdgeExclusionMm) * 1000;
+        if (r.CustomSites.Any(p => !double.IsFinite(p.XUm) || !double.IsFinite(p.YUm) || Math.Sqrt(p.XUm * p.XUm + p.YUm * p.YUm) > radiusUm)) return "CustomSitesText: 웨이퍼 유효 반경 안이어야 함";
+        return null;
+    }
+    private static bool Positive(double value) => double.IsFinite(value) && value > 0;
+    private static bool NonNegative(TimeSpan value) => value >= TimeSpan.Zero;
 
     [Category("기본"), Description("레시피 형식 버전")]
     public int SchemaVersion { get => Recipe.SchemaVersion; set => Set(r => r with { SchemaVersion = value }); }
@@ -19,7 +57,24 @@ public sealed class RecipeEditModel
     [Category("측정 위치"), Description("사이트 배열")]
     public SitePattern Pattern { get => Recipe.Pattern; set => Set(r => r with { Pattern = value }); }
     [Category("측정 위치"), Description("사용자 지정 사이트 좌표 (µm)")]
-    public IReadOnlyList<SitePoint> CustomSites { get => Recipe.CustomSites; set => Set(r => r with { CustomSites = value }); }
+    public string CustomSitesText
+    {
+        get => string.Join(";", Recipe.CustomSites.Select(p => $"{p.XUm.ToString(CultureInfo.InvariantCulture)},{p.YUm.ToString(CultureInfo.InvariantCulture)}"));
+        set
+        {
+            var points = new List<SitePoint>();
+            foreach (var entry in value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var values = entry.Split(',', StringSplitOptions.TrimEntries);
+                if (values.Length != 2 || !double.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x) ||
+                    !double.TryParse(values[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y) ||
+                    !double.IsFinite(x) || !double.IsFinite(y))
+                    throw new FormatException("CustomSitesText: X,Y;X,Y 형식이 필요함");
+                points.Add(new SitePoint(x, y));
+            }
+            Set(r => r with { CustomSites = points });
+        }
+    }
     [Category("측정 위치"), Description("웨이퍼 지름 (mm)")]
     public double WaferDiameterMm { get => Recipe.WaferDiameterMm; set => Set(r => r with { WaferDiameterMm = value }); }
     [Category("측정 위치"), Description("가장자리 제외 폭 (mm)")]

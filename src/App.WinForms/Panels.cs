@@ -45,9 +45,9 @@ internal sealed class SchematicPanel : BufferedPanel
         var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
         var s = Snapshot; if (s is null) return;
         Label(g, "평면도  /  TOP VIEW", Font, Brushes.LightGray, 16, 10);
-        var h = Height - 70;
-        var waferSize = Math.Min(210, Math.Max(100, h - 35));
-        var wafer = new RectangleF(Width * .47f - waferSize / 2, 36, waferSize, waferSize);
+        var topHeight = Height * .55f;
+        var waferSize = Math.Min(190, Math.Max(100, topHeight - 48));
+        var wafer = new RectangleF(Width * .50f - waferSize / 2, 33, waferSize, waferSize);
         using var surface = new SolidBrush(Color.FromArgb(49, 62, 77));
         g.FillEllipse(surface, wafer); g.DrawEllipse(Pens.SlateGray, wafer);
         g.DrawLine(Pens.DimGray, wafer.Left + wafer.Width / 2, wafer.Top, wafer.Left + wafer.Width / 2, wafer.Bottom);
@@ -57,18 +57,22 @@ internal sealed class SchematicPanel : BufferedPanel
         {
             var p = DrawingMath.SiteToPixel(s.Sites[i], wafer, diameter);
             var done = s.Wafers.FirstOrDefault(w => w.WaferId == s.CurrentWaferId)?.SitesDone ?? 0;
-            using var b = new SolidBrush(i < done ? Color.MediumAquamarine : i == s.CurrentSiteIndex ? Color.Gold : Color.SlateGray);
-            g.FillEllipse(b, p.X - 4, p.Y - 4, 8, 8);
+            var dot = new RectangleF(p.X - 4, p.Y - 4, 8, 8);
+            if (i < done) g.FillEllipse(Brushes.MediumAquamarine, dot);
+            else if (i == s.CurrentSiteIndex) g.FillEllipse(Brushes.Gold, dot);
+            else g.DrawEllipse(Pens.LightSkyBlue, dot);
         }
         var stage = DrawingMath.SiteToPixel(new SitePoint(s.Motion.StageXUm, s.Motion.StageYUm), wafer, diameter);
         g.DrawLine(Pens.Orange, stage.X - 9, stage.Y, stage.X + 9, stage.Y);
         g.DrawLine(Pens.Orange, stage.X, stage.Y - 9, stage.X, stage.Y + 9);
         Label(g, "LOAD PORT", Font, Brushes.LightGray, 16, 48);
-        for (var i = 0; i < Math.Min(8, Math.Max(5, s.Wafers.Count)); i++)
+        var slotCount = Math.Min(25, Math.Max(5, s.Wafers.Count));
+        var slotHeight = Math.Max(5f, (topHeight - 75) / slotCount);
+        for (var i = 0; i < slotCount; i++)
         {
-            var y = 75 + i * 19;
-            g.DrawRectangle(Pens.SlateGray, 17, y, 76, 12);
-            if (i < s.Wafers.Count && s.Wafers[i].Location == WaferLocation.LoadPort) g.FillRectangle(Brushes.LightSkyBlue, 20, y + 3, 70, 6);
+            var y = 65 + i * slotHeight;
+            g.DrawRectangle(Pens.SlateGray, 17, y, 76, Math.Max(4, slotHeight - 2));
+            if (i < s.Wafers.Count && s.Wafers[i].Location == WaferLocation.LoadPort) g.FillRectangle(Brushes.LightSkyBlue, 20, y + 2, 70, Math.Max(2, slotHeight - 6));
         }
         var armY = wafer.Top + wafer.Height / 2;
         using var armPen = new Pen(Color.CornflowerBlue, 8);
@@ -78,12 +82,31 @@ internal sealed class SchematicPanel : BufferedPanel
         g.DrawEllipse(Pens.CornflowerBlue, ax, 75, 60, 60);
         g.DrawLine(Pens.Gold, ax + 30, 75, ax + 30, 85);
         Label(g, "ALIGNER", Font, Brushes.LightGray, ax, 145);
-        var sideY = Math.Min(Height - 85, wafer.Bottom + 12);
-        Label(g, "측면도  /  SIDE VIEW", Font, Brushes.LightGray, 16, sideY);
+        var sideY = topHeight + 2;
+        g.DrawLine(Pens.DimGray, 16, sideY - 4, Width - 16, sideY - 4);
+        Label(g, "측면도  /  SIDE VIEW", Font, Brushes.LightGray, 16, sideY + 3);
+        var railTop = sideY + 29;
+        var chuckY = Height - 54;
+        var railBottom = chuckY - 15;
         var zX = Width * .55f;
+        var railX = zX + 39;
+        using var railPen = new Pen(Color.SlateGray, 3);
+        g.DrawLine(railPen, railX, railTop, railX, railBottom);
+        g.DrawLine(Pens.LightGray, railX - 7, railTop, railX + 7, railTop);
+        g.DrawLine(Pens.LightGray, railX - 7, railBottom, railX + 7, railBottom);
+        Label(g, "300 µm", Font, Brushes.LightGray, railX + 17, railTop - 9);
+        Label(g, "0 µm", Font, Brushes.LightGray, railX + 17, railBottom - 9);
+        var zFraction = (float)Math.Clamp(s.Motion.ZUm / 300.0, 0, 1);
+        var headY = railBottom - (railBottom - railTop) * zFraction;
         using var head = new SolidBrush(s.Motion.ProbeInContact ? Color.OrangeRed : Color.SteelBlue);
-        g.FillRectangle(head, zX, sideY + 20 + (float)Math.Clamp(300 - s.Motion.ZUm, 0, 300) / 15, 78, 12);
-        g.DrawLine(Pens.SlateGray, zX - 12, sideY + 60, zX + 95, sideY + 60);
+        g.FillRectangle(head, zX, headY - 8, 78, 16);
+        g.DrawLine(Pens.LightGray, railX, headY + 8, railX, headY + 15);
+        using var chuckBrush = new SolidBrush(Color.FromArgb(75, 92, 109));
+        g.FillRectangle(chuckBrush, zX - 43, chuckY, 164, 17);
+        g.DrawLine(Pens.LightSkyBlue, zX - 43, chuckY, zX + 121, chuckY);
+        using var contactBrush = new SolidBrush(s.Motion.ProbeInContact ? Color.OrangeRed : Color.DimGray);
+        g.FillEllipse(contactBrush, railX - 5, chuckY - 6, 10, 10);
+        Label(g, s.Motion.ProbeInContact ? "접촉" : $"Z {s.Motion.ZUm:0} µm", Font, Brushes.LightGray, zX - 60, chuckY + 1);
         var flags = new[] { ("진공", s.Motion.VacuumOn), ("확인", s.Motion.VacuumConfirmed), ("조명", s.Motion.LampOn), ("초점", s.Motion.CameraFocused), ("도어", s.Motion.LoadPortDoorOpen), ("EMO", s.ActiveAlarms.Any(a => a.Code == AlarmCode.Emo)) };
         var flagY = Height - 26;
         for (var i = 0; i < flags.Length; i++)
@@ -100,6 +123,7 @@ internal sealed class GanttPanel : BufferedPanel
 {
     private readonly ToolTip _tip = new();
     private readonly List<(RectangleF Rect, StepEvent Event)> _hits = new();
+    private long _hoveredSeq = -1;
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public IReadOnlyList<StepEvent> Steps { get; set; } = Array.Empty<StepEvent>();
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -110,8 +134,11 @@ internal sealed class GanttPanel : BufferedPanel
     private void Hover(object? sender, MouseEventArgs e)
     {
         var hit = _hits.FirstOrDefault(h => h.Rect.Contains(e.Location));
+        if ((hit.Event?.Seq ?? -1) == _hoveredSeq) return;
+        _hoveredSeq = hit.Event?.Seq ?? -1;
         _tip.SetToolTip(this, hit.Event is null ? "" : $"{hit.Event.WaferId} · {hit.Event.Phase} · {hit.Event.Duration?.TotalMilliseconds:0} ms\n{hit.Event.WaitReason}");
     }
+    protected override void Dispose(bool disposing) { if (disposing) _tip.Dispose(); base.Dispose(disposing); }
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
@@ -127,7 +154,7 @@ internal sealed class GanttPanel : BufferedPanel
             g.DrawLine(Pens.DimGray, left, y + row - 2, Width - 10, y + row - 2);
         }
         string? previous = null;
-        foreach (var ev in Steps.OrderBy(x => x.Start))
+        foreach (var ev in Steps)
         {
             if (ev.End is null || ev.End < start || ev.Start > Now) continue;
             var x1 = DrawingMath.TimeToPixel(ev.Start < start ? start : ev.Start, start, window, left, width);
@@ -163,12 +190,15 @@ internal sealed class WaferMapPanel : BufferedPanel
         if (size <= 0) return;
         var wafer = new RectangleF((Width - size) / 2f, 20, size, size);
         g.FillEllipse(Brushes.DimGray, wafer); g.DrawEllipse(Pens.LightGray, wafer);
-        var values = Measurements.Select(m => m.RsOhmPerSq).ToArray();
+        var waferId = Snapshot?.State is EquipmentState.Running or EquipmentState.Paused
+            ? Snapshot.CurrentWaferId ?? Summary?.WaferId : Summary?.WaferId ?? Snapshot?.CurrentWaferId;
+        var bySite = Measurements.Where(m => m.WaferId == waferId).GroupBy(m => m.SiteIndex).ToDictionary(g => g.Key, g => g.Last());
+        var values = bySite.Values.Select(m => m.RsOhmPerSq).ToArray();
         var min = values.Length == 0 ? 0 : values.Min(); var max = values.Length == 0 ? 1 : values.Max();
         foreach (var (site, index) in (Snapshot?.Sites ?? Array.Empty<SitePoint>()).Select((p, i) => (p, i)))
         {
             var p = DrawingMath.SiteToPixel(site, wafer, WaferDiameterMm);
-            var measurement = Measurements.LastOrDefault(m => m.SiteIndex == index && m.WaferId == (Summary?.WaferId ?? Snapshot?.CurrentWaferId));
+            bySite.TryGetValue(index, out var measurement);
             var color = measurement is null ? Color.SlateGray : DrawingMath.Interpolate(Color.RoyalBlue, Color.OrangeRed, (measurement.RsOhmPerSq - min) / Math.Max(.000001, max - min));
             using var brush = new SolidBrush(color); g.FillEllipse(brush, p.X - 7, p.Y - 7, 14, 14);
         }
