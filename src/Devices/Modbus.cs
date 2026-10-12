@@ -153,7 +153,7 @@ public sealed class ModbusTcpClient(IByteTransport transport, TimeProvider? cloc
             while (true)
             {
                 pending ??= transport.ReceiveAsync(CancellationToken.None);
-                var response = await pending.WaitAsync(responseTimeout, time is VirtualTimeProvider { Mode: ClockMode.Instant } ? TimeProvider.System : time, ct);
+                var response = await pending.WaitAsync(responseTimeout, TimeProvider.System, ct);
                 pending = null;
                 if (response.Length < 9) throw new IOException("Modbus 응답 길이 오류");
                 if (BinaryPrimitives.ReadUInt16BigEndian(response) != id) continue;

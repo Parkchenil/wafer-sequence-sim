@@ -123,7 +123,9 @@ public sealed class ScpiSmu(IDuplexTransport transport, TimeProvider? clock = nu
             while (true)
             {
                 pending ??= transport.ReadLineAsync(CancellationToken.None);
-                var line = await pending.WaitAsync(responseTimeout + extraWait, time is VirtualTimeProvider { Mode: ClockMode.Instant } ? TimeProvider.System : time, ct);
+                // 통신 타임아웃은 현실의 성질이라 벽시계로 잰다. 서버가 쓰는 시뮬레이션 시간(extraWait)은 배속을 반영해 벽시계로 환산한다.
+                var wallExtra = time is VirtualTimeProvider v ? (v.Mode == ClockMode.Instant ? TimeSpan.Zero : extraWait / Math.Max(v.TimeScale, 1e-9)) : extraWait;
+                var line = await pending.WaitAsync(responseTimeout + wallExtra, TimeProvider.System, ct);
                 pending = null;
                 if (staleResponses > 0) { staleResponses--; continue; }
                 if (line == "ERR:SERVER") return DeviceResult<string>.Fail(AlarmCode.SmuTimeout, "SMU 서버 측정 실패");
