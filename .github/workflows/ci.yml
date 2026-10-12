@@ -84,8 +84,11 @@ jobs:
         timeout-minutes: 5
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          & src/App.WinForms/bin/Release/net10.0-windows/App.WinForms.exe --screenshot artifacts/winforms.png --wafers 2
-          if ($LASTEXITCODE -ne 0) { throw "App.WinForms 종료 코드 $LASTEXITCODE" }
+          # GUI 실행 파일은 '&'로 띄우면 기다리지 않으므로 Start-Process -Wait로 종료 코드를 받는다
+          $exe = Resolve-Path src/App.WinForms/bin/Release/net10.0-windows/App.WinForms.exe
+          $p = Start-Process -FilePath $exe -ArgumentList '--screenshot','artifacts/winforms.png','--wafers','2' -Wait -PassThru -NoNewWindow -RedirectStandardError artifacts/winforms-stderr.txt
+          if (Test-Path artifacts/winforms-stderr.txt) { Get-Content artifacts/winforms-stderr.txt }
+          if ($p.ExitCode -ne 0) { throw "App.WinForms 종료 코드 $($p.ExitCode)" }
           if (-not (Test-Path artifacts/winforms.png)) { throw "스크린샷 파일이 만들어지지 않음" }
 
       - name: 스크린샷 업로드
@@ -93,5 +96,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: winforms-screenshot
-          path: artifacts/winforms.png
+          path: artifacts/
           if-no-files-found: warn
