@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 같은 ref의 이전 실행은 취소한다
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: NuGet 캐시
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: 복원
+        run: dotnet restore
+
+      # App.WinForms는 EnableWindowsTargeting이 켜져 있어 리눅스에서도 컴파일된다
+      - name: 빌드
+        run: dotnet build -c Release --no-restore
+
+      - name: 테스트
+        run: dotnet test tests/Tests/Tests.csproj -c Release --no-build --logger "trx"
+
+      - name: 테스트 결과 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: tests/Tests/TestResults/**/*.trx
+          if-no-files-found: warn
+
+  winforms:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: NuGet 캐시
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: 복원
+        run: dotnet restore src/App.WinForms/App.WinForms.csproj
+
+      - name: 빌드
+        run: dotnet build src/App.WinForms/App.WinForms.csproj -c Release --no-restore
+
+      - name: 스크린샷 생성
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          & src/App.WinForms/bin/Release/net10.0-windows/App.WinForms.exe --screenshot artifacts/winforms.png --wafers 2
+          if ($LASTEXITCODE -ne 0) { throw "App.WinForms 종료 코드 $LASTEXITCODE" }
+          if (-not (Test-Path artifacts/winforms.png)) { throw "스크린샷 파일이 만들어지지 않음" }
+
+      - name: 스크린샷 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winforms-screenshot
+          path: artifacts/winforms.png
+          if-no-files-found: warn

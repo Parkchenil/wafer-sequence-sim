@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="620" viewBox="0 0 1100 620" font-family="sans-serif" font-size="14">
+  <title>WaferSequenceSim 아키텍처</title>
+  <desc>앱 계층에서 Contracts.ISimulator를 거쳐 Core(시퀀스·계측)와 Devices로 내려가는 의존 구조. 화살표는 의존 방향.</desc>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="1100" height="620" fill="#ffffff"/>
+  <text x="40" y="26" font-size="16" font-weight="bold" fill="#0f172a">WaferSequenceSim 아키텍처</text>
+  <text x="1060" y="26" text-anchor="end" font-size="12" fill="#64748b">화살표 = 의존 방향 (A → B : A가 B를 참조)</text>
+
+  <rect x="140" y="44" width="340" height="52" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="310" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#0f172a">App.WinForms</text>
+  <text x="310" y="84" text-anchor="middle" font-size="12" font-weight="normal" fill="#475569">Windows 데스크톱 UI</text>
+  <rect x="620" y="44" width="340" height="52" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="790" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#0f172a">App.Avalonia</text>
+  <text x="790" y="84" text-anchor="middle" font-size="12" font-weight="normal" fill="#475569">크로스 플랫폼 UI</text>
+  <line x1="310" y1="96" x2="310" y2="148" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="790" y1="96" x2="790" y2="148" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <rect x="40" y="150" width="1020" height="56" rx="6" fill="#e0ecff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="550" y="174" text-anchor="middle" font-size="16" font-weight="bold" fill="#1e3a8a">Contracts.ISimulator</text>
+  <text x="550" y="194" text-anchor="middle" font-size="12" font-weight="normal" fill="#1e3a8a">공용 인터페이스 · DTO · 장치 계약 (IDigitalIO 등) — 모든 계층이 여기에만 의존</text>
+  <line x1="290" y1="248" x2="290" y2="208" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="810" y1="248" x2="810" y2="208" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <rect x="40" y="248" width="500" height="144" rx="6" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+  <text x="56" y="272" text-anchor="start" font-size="14" font-weight="bold" fill="#0f172a">Core.Sequence</text>
+  <text x="524" y="272" text-anchor="end" font-size="12" font-weight="normal" fill="#475569">장비 시퀀스</text>
+  <rect x="56" y="286" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="130" y="305" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">모듈별 상태기계</text>
+  <rect x="212" y="286" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="286" y="305" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">스케줄러</text>
+  <rect x="368" y="286" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="442" y="305" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">웨이퍼 추적</text>
+  <rect x="56" y="320" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="130" y="339" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">인터락</text>
+  <rect x="212" y="320" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="286" y="339" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">알람</text>
+  <rect x="368" y="320" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="442" y="339" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">저장 큐</text>
+  <text x="56" y="372" text-anchor="start" font-size="12" font-weight="normal" fill="#64748b">시간은 VirtualTimeProvider로만 진행</text>
+  <rect x="560" y="248" width="500" height="144" rx="6" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+  <text x="576" y="272" text-anchor="start" font-size="14" font-weight="bold" fill="#0f172a">Core.Measurement</text>
+  <text x="1044" y="272" text-anchor="end" font-size="12" font-weight="normal" fill="#475569">계측·분석</text>
+  <rect x="576" y="286" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="650" y="305" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">Rs 계산</text>
+  <rect x="732" y="286" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="806" y="305" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">분포 모델</text>
+  <rect x="888" y="286" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="962" y="305" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">통계</text>
+  <rect x="576" y="320" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="650" y="339" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">SQLite</text>
+  <rect x="732" y="320" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="806" y="339" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">CSV</text>
+  <rect x="888" y="320" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="962" y="339" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">비교</text>
+  <rect x="576" y="354" width="148" height="28" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="650" y="373" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">지문</text>
+  <rect x="40" y="418" width="1020" height="104" rx="6" fill="#fefce8" stroke="#a16207" stroke-width="1.5"/>
+  <text x="56" y="440" text-anchor="start" font-size="14" font-weight="bold" fill="#0f172a">Devices</text>
+  <text x="1044" y="440" text-anchor="end" font-size="12" font-weight="normal" fill="#854d0e">가상 서버로 실장비 없이 동작</text>
+  <rect x="56" y="450" width="115" height="36" rx="4" fill="#ffffff" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="113.5" y="473" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">축</text>
+  <rect x="179" y="450" width="115" height="36" rx="4" fill="#ffffff" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="236.5" y="473" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">Z헤드</text>
+  <rect x="302" y="450" width="115" height="36" rx="4" fill="#ffffff" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="359.5" y="466" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">SMU</text>
+  <text x="359.5" y="480" text-anchor="middle" font-size="11" font-weight="normal" fill="#854d0e">SCPI</text>
+  <rect x="425" y="450" width="115" height="36" rx="4" fill="#ffffff" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="482.5" y="466" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">IO</text>
+  <text x="482.5" y="480" text-anchor="middle" font-size="11" font-weight="normal" fill="#854d0e">Modbus TCP</text>
+  <rect x="548" y="450" width="115" height="36" rx="4" fill="#ffffff" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="605.5" y="473" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">비전</text>
+  <rect x="671" y="450" width="115" height="36" rx="4" fill="#ffffff" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="728.5" y="473" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">로드포트</text>
+  <rect x="794" y="450" width="115" height="36" rx="4" fill="#ffffff" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="851.5" y="473" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">로봇</text>
+  <rect x="917" y="450" width="115" height="36" rx="4" fill="#ffffff" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="974.5" y="473" text-anchor="middle" font-size="14" font-weight="normal" fill="#0f172a">얼라이너</text>
+  <rect x="56" y="494" width="988" height="22" rx="4" fill="#fef3c7" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="550" y="510" text-anchor="middle" font-size="13" font-weight="normal" fill="#713f12">IDigitalIO (디지털 I/O 공통 기반)</text>
+  <polyline points="40,470 20,470 20,178 38,178" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="550" y1="522" x2="550" y2="538" stroke="#475569" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+  <rect x="40" y="538" width="1020" height="30" rx="6" fill="#ecfdf5" stroke="#047857" stroke-width="1.5"/>
+  <text x="550" y="558" text-anchor="middle" font-size="14" font-weight="bold" fill="#064e3b">VirtualTimeProvider — 단일 시간원 (모든 계층이 같은 가상 시계를 참조)</text>
+  <rect x="40" y="574" width="1020" height="30" rx="6" fill="#f5f3ff" stroke="#6d28d9" stroke-width="1.5"/>
+  <text x="550" y="594" text-anchor="middle" font-size="14" font-weight="bold" fill="#4c1d95">Recipe seed — 같은 레시피·같은 시드면 항상 같은 결과 (결정성)</text>
+</svg>
