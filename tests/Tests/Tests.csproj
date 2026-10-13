@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Contracts\Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Core.Visualization\Core.Visualization.csproj" />
     <ProjectReference Include="..\..\src\Core.Sequence\Core.Sequence.csproj" />
     <ProjectReference Include="..\..\src\Core.Measurement\Core.Measurement.csproj" />
     <ProjectReference Include="..\..\src\Devices\Devices.csproj" />

@@ -1,36 +1,369 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:App.Avalonia" xmlns:c="using:Contracts" x:Class="App.Avalonia.MainWindow" x:DataType="local:MainViewModel" Width="1600" Height="950" MinWidth="1280" MinHeight="800" Title="Wafer Sequence Simulator" Background="#0C1520">
+<?xml version="1.0" ?>
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:App.Avalonia" xmlns:c="using:Contracts" xmlns:conv="using:Avalonia.Data.Converters" x:Class="App.Avalonia.MainWindow" x:DataType="local:MainViewModel" Width="1600" Height="950" MinWidth="1280" MinHeight="800" Title="Wafer Sequence Simulator" Background="{DynamicResource BackgroundBrush}">
   <Window.Styles>
-    <Style Selector="Border.card"><Setter Property="Background" Value="#172638"/><Setter Property="CornerRadius" Value="6"/><Setter Property="Padding" Value="12"/></Style>
-    <Style Selector="TextBlock.caption"><Setter Property="Foreground" Value="#91A8BC"/><Setter Property="FontSize" Value="11"/></Style>
-    <Style Selector="TextBlock.value"><Setter Property="Foreground" Value="White"/><Setter Property="FontSize" Value="18"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="12"/>
+      <Setter Property="Padding" Value="10"/>
+    </Style>
+    <Style Selector="Border.badge">
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="7,3"/>
+    </Style>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+    <Style Selector="TextBlock.value">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="FontSize" Value="18"/>
+      <Setter Property="FontFamily" Value="Menlo,Consolas,monospace"/>
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{DynamicResource PrimaryBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource BackgroundBrush}"/>
+    </Style>
+    <Style Selector="ListBox TextBlock">
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="FontFamily" Value="Menlo,Consolas,monospace"/>
+    </Style>
   </Window.Styles>
-  <Grid RowDefinitions="92,*" Margin="12" RowSpacing="10">
-    <Border Classes="card" Grid.Row="0"><Grid ColumnDefinitions="*,*,*,*,*,*,*" ColumnSpacing="12">
-      <StackPanel Grid.Column="0"><TextBlock Classes="caption" Text="장비 상태"/><Border Background="{Binding StateBrush}" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"><TextBlock Classes="value" Text="{Binding StateText}"/></Border></StackPanel>
-      <StackPanel Grid.Column="1"><TextBlock Classes="caption" Text="시뮬레이션 시간"/><TextBlock Classes="value" Text="{Binding SimTime}"/></StackPanel>
-      <StackPanel Grid.Column="2"><TextBlock Classes="caption" Text="평균 Tact"/><TextBlock Classes="value" Text="{Binding AverageTact}"/></StackPanel>
-      <StackPanel Grid.Column="3"><TextBlock Classes="caption" Text="UPH"/><TextBlock Classes="value" Text="{Binding Uph}"/></StackPanel>
-      <StackPanel Grid.Column="4"><TextBlock Classes="caption" Text="완료 / 전체"/><TextBlock Classes="value" Text="{Binding WaferProgress}"/></StackPanel>
-      <StackPanel Grid.Column="5"><TextBlock Classes="caption" Text="저장 큐"/><TextBlock Classes="value" Text="{Binding QueueText}"/><ProgressBar Value="{Binding QueueFraction}" Maximum="1" Height="5"/></StackPanel>
-      <StackPanel Grid.Column="6"><TextBlock Classes="caption" Text="활성 알람"/><TextBlock Classes="value" Text="{Binding AlarmCount}"/></StackPanel>
-    </Grid></Border>
-    <Grid Grid.Row="1" ColumnDefinitions="315,*,430" ColumnSpacing="10">
-      <Border Classes="card" Grid.Column="0"><Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
-        <TextBlock FontSize="17" FontWeight="Bold" Text="레시피 · 조작"/>
-        <ScrollViewer Grid.Row="1"><ItemsControl ItemsSource="{Binding RecipeGroups}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:RecipeGroup"><StackPanel Spacing="7" Margin="0,0,0,16"><TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#64B5D9" FontSize="14"/><ItemsControl ItemsSource="{Binding TextFields}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:RecipeField"><StackPanel Margin="0,0,0,5"><TextBlock Classes="caption" Text="{Binding Label}"/><TextBox Text="{Binding Value, Mode=TwoWay}"/></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl><ItemsControl ItemsSource="{Binding ChoiceFields}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:RecipeField"><StackPanel Margin="0,0,0,5"><TextBlock Classes="caption" Text="{Binding Label}"/><ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Value, Mode=TwoWay}"/></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl><ItemsControl ItemsSource="{Binding BooleanFields}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:RecipeField"><CheckBox Content="{Binding Label}" IsChecked="{Binding BoolValue, Mode=TwoWay}"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></ScrollViewer>
-        <StackPanel Grid.Row="2" Spacing="7"><TextBlock Classes="caption" Text="CustomSites: XUm,YUm; XUm,YUm"/><StackPanel Orientation="Horizontal" Spacing="5"><Button Content="저장" Command="{Binding SaveRecipeCommand}"/><Button Content="불러오기" Command="{Binding LoadRecipeCommand}"/></StackPanel><TextBlock Text="웨이퍼 수"/><NumericUpDown Minimum="1" Maximum="25" Value="{Binding WaferCount, Mode=TwoWay}"/><WrapPanel Orientation="Horizontal"><Button Content="초기화" Command="{Binding InitializeCommand}" IsEnabled="{Binding CanInitialize}"/><Button Content="시작" Command="{Binding StartCommand}" IsEnabled="{Binding CanStart}"/><Button Content="일시정지" Command="{Binding PauseCommand}" IsEnabled="{Binding CanPause}"/><Button Content="재개" Command="{Binding ResumeCommand}" IsEnabled="{Binding CanResume}"/><Button Content="중단" Command="{Binding AbortCommand}" IsEnabled="{Binding CanAbort}"/><Button Content="리셋" Command="{Binding ResetCommand}" IsEnabled="{Binding CanReset}"/></WrapPanel><TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="#F6C96C"/></StackPanel>
-      </Grid></Border>
-      <Grid Grid.Column="1" RowDefinitions="*,390" RowSpacing="10">
-        <Border Classes="card"><Grid RowDefinitions="Auto,*"><TextBlock FontSize="16" FontWeight="Bold" Text="장비 평면 · 측면"/><local:EquipmentView Grid.Row="1" Snapshot="{Binding Snapshot}"/></Grid></Border>
-        <Border Classes="card" Grid.Row="1"><Grid RowDefinitions="Auto,*" RowSpacing="8"><StackPanel Orientation="Horizontal" Spacing="12"><TextBlock FontSize="16" FontWeight="Bold" Text="모듈 타임라인"/><TextBlock VerticalAlignment="Center" Text="최근 초"/><Slider Width="150" Minimum="10" Maximum="300" Value="{Binding WindowSeconds, Mode=TwoWay}"/><TextBlock Text="{Binding WindowSeconds, StringFormat='{}{0:F0}s'}"/></StackPanel><local:GanttView Grid.Row="1" Snapshot="{Binding Snapshot}" Steps="{Binding Logs}" WindowSeconds="{Binding WindowSeconds}"/></Grid></Border>
+  <Grid ColumnDefinitions="64,*">
+    <Border Grid.Column="0" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,1,0">
+      <StackPanel Spacing="8" Margin="6,14">
+        <Button Width="40" Height="38" ToolTip.Tip="대시보드" AutomationProperties.Name="대시보드" Click="ShowDashboard"><PathIcon Width="17" Height="17" Data="M3,3 H10 V10 H3 Z M14,3 H21 V10 H14 Z M3,14 H10 V21 H3 Z M14,14 H21 V21 H14 Z"/></Button>
+        <Button Width="40" Height="38" ToolTip.Tip="웨이퍼 맵" AutomationProperties.Name="웨이퍼 맵" Click="ShowWaferMap"><PathIcon Width="17" Height="17" Data="M12,2 A10,10 0 1 1 11.99,2 Z M8,7 H10 V9 H8 Z M14,7 H16 V9 H14 Z M8,13 H10 V15 H8 Z M14,13 H16 V15 H14 Z"/></Button>
+        <Button Width="40" Height="38" ToolTip.Tip="로그" AutomationProperties.Name="로그" Click="ShowLogs"><PathIcon Width="17" Height="17" Data="M4,3 H20 V6 H4 Z M4,10 H20 V13 H4 Z M4,17 H17 V20 H4 Z"/></Button>
+        <Button Width="40" Height="38" ToolTip.Tip="통계" AutomationProperties.Name="통계" Click="ShowStatistics"><PathIcon Width="17" Height="17" Data="M3,20 H21 V22 H3 Z M4,11 H8 V18 H4 Z M10,3 H14 V18 H10 Z M16,7 H20 V18 H16 Z"/></Button>
+        <Button Width="40" Height="38" ToolTip.Tip="알람" AutomationProperties.Name="알람" Click="ShowAlarms"><PathIcon Width="17" Height="17" Data="M12,3 L22,21 H2 Z M12,8 V14 M12,17 V18"/></Button>
+        <Button Width="40" Height="38" ToolTip.Tip="장치" AutomationProperties.Name="장치" Click="ShowDevices"><PathIcon Width="17" Height="17" Data="M4,3 H20 V9 H4 Z M4,12 H20 V18 H4 Z M7,20 H17 V22 H7 Z"/></Button>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Column="1" RowDefinitions="48,76,*,252" RowSpacing="8" Margin="10,10,10,26">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
+        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <TextBlock Text="WAFER SEQUENCE SIMULATOR" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <Border Classes="badge" VerticalAlignment="Center">
+            <TextBlock Text="분석 기반 개념 모델 · 장비 미확정" FontSize="11"/>
+          </Border>
+        </StackPanel>
+        <Button Grid.Column="1" Content="레시피 열기" Click="ToggleRecipe" VerticalAlignment="Center"/>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+          <Button Content="초기화" Command="{Binding InitializeCommand}" IsEnabled="{Binding CanInitialize}"/>
+          <Button Classes="primary" Content="시작" Command="{Binding StartCommand}" IsEnabled="{Binding CanStart}"/>
+          <Button Content="일시정지" Command="{Binding PauseCommand}" IsEnabled="{Binding CanPause}"/>
+          <Button Content="재개" Command="{Binding ResumeCommand}" IsEnabled="{Binding CanResume}"/>
+          <Button Content="중단" Command="{Binding AbortCommand}" IsEnabled="{Binding CanAbort}"/>
+          <Button Content="리셋" Command="{Binding ResetCommand}" IsEnabled="{Binding CanReset}"/>
+        </StackPanel>
       </Grid>
-      <Border Classes="card" Grid.Column="2"><TabControl>
-        <TabItem Header="로그"><Grid RowDefinitions="Auto,*"><CheckBox Content="대기만" IsChecked="{Binding WaitsOnly}"/><ListBox Grid.Row="1" ItemsSource="{Binding VisibleLogs}" ScrollViewer.VerticalScrollBarVisibility="Auto"><ListBox.ItemTemplate><DataTemplate x:DataType="c:StepEvent"><StackPanel Margin="0,2"><Grid ColumnDefinitions="36,74,36,28,53,72,*" ColumnSpacing="2"><TextBlock Grid.Column="0" Text="{Binding Seq}"/><TextBlock Grid.Column="1" Text="{Binding Start, StringFormat='{}{0:mm\:ss\.fff}'}" FontSize="10"/><TextBlock Grid.Column="2" Text="{Binding WaferId}"/><TextBlock Grid.Column="3" Text="{Binding SiteIndex}"/><TextBlock Grid.Column="4" Text="{Binding Module}" FontSize="10"/><TextBlock Grid.Column="5" Text="{Binding Phase}" FontSize="10"/><TextBlock Grid.Column="6" Text="{Binding Duration, StringFormat='{}{0:mm\:ss\.fff}'}" FontSize="10"/></Grid><TextBlock Text="{Binding WaitReason}" TextWrapping="Wrap" Foreground="#AFC3D1" FontSize="10"/><TextBlock Text="{Binding Note}" TextWrapping="Wrap" Foreground="#AFC3D1" FontSize="10"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox></Grid></TabItem>
-        <TabItem Header="웨이퍼 맵"><Grid RowDefinitions="Auto,*,Auto" RowSpacing="8"><ComboBox ItemsSource="{Binding Summaries}" SelectedItem="{Binding SelectedSummary, Mode=TwoWay}"><ComboBox.ItemTemplate><DataTemplate x:DataType="c:WaferSummary"><TextBlock Text="{Binding WaferId}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox><local:WaferMapView Grid.Row="1" Summary="{Binding SelectedSummary}"/><StackPanel Grid.Row="2" DataContext="{Binding SelectedSummary}" x:DataType="c:WaferSummary"><TextBlock Text="{Binding MeanRs, StringFormat='평균 {0:F3} Ω/sq'}"/><TextBlock Text="{Binding SigmaRs, StringFormat='σ {0:F3}'}"/><TextBlock Text="{Binding UniformitySigmaPct, StringFormat='균일도 σ {0:F2}%'}"/><TextBlock Text="{Binding UniformityRangePct, StringFormat='균일도 범위 {0:F2}%'}"/><TextBlock Text="{Binding RepeatabilityPct, StringFormat='재현성 {0:F2}%'}"/><TextBlock Text="{Binding Tact, StringFormat='Tact {0:mm\:ss\.fff}'}"/><TextBlock Text="{Binding MinRs, StringFormat='범례 최소 {0:F3}'}"/><TextBlock Text="{Binding MaxRs, StringFormat='범례 최대 {0:F3}'}"/></StackPanel></Grid></TabItem>
-        <TabItem Header="통계"><ScrollViewer><StackPanel Spacing="10"><TextBlock Text="{Binding WaitRatio}"/><ItemsControl ItemsSource="{Binding Phases}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:PhaseBar"><Grid ColumnDefinitions="110,*,65" Margin="0,3"><TextBlock Text="{Binding Phase}"/><ProgressBar Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Percent}"/><TextBlock Grid.Column="2" Text="{Binding Seconds, StringFormat='{}{0:F1}s'}"/></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl><TextBlock Text="두 실행 비교" FontWeight="Bold"/><ComboBox ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRunA, Mode=TwoWay}"><ComboBox.ItemTemplate><DataTemplate x:DataType="c:RunRecord"><TextBlock Text="{Binding RunId}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox><ComboBox ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRunB, Mode=TwoWay}"><ComboBox.ItemTemplate><DataTemplate x:DataType="c:RunRecord"><TextBlock Text="{Binding RunId}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox><Button Content="비교" Command="{Binding CompareCommand}"/><TextBlock Text="{Binding ComparisonText}"/><ItemsControl ItemsSource="{Binding PhaseDeltas}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="c:PhaseDelta"><Grid ColumnDefinitions="110,80,80,*"><TextBlock Text="{Binding Phase}"/><TextBlock Grid.Column="1" Text="{Binding A}"/><TextBlock Grid.Column="2" Text="{Binding B}"/><TextBlock Grid.Column="3" Text="{Binding Delta}"/></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></ScrollViewer></TabItem>
-        <TabItem Header="알람"><ScrollViewer><ItemsControl ItemsSource="{Binding Alarms}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="c:Alarm"><Border BorderBrush="#455C70" BorderThickness="0,0,0,1" Padding="4"><StackPanel><TextBlock Text="{Binding Code}" FontWeight="Bold"/><TextBlock Text="{Binding Module}"/><TextBlock Text="{Binding Message}" TextWrapping="Wrap"/><TextBlock Text="{Binding SetAt}"/><Button Content="Ack" Command="{Binding $parent[Window].DataContext.AckCommand}" CommandParameter="{Binding Id}" IsEnabled="{Binding !Acked}"/></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></ScrollViewer></TabItem>
-        <TabItem Header="장치"><ItemsControl ItemsSource="{Binding Modules}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="c:ModuleStatus"><Grid ColumnDefinitions="90,85,*" Margin="0,4"><TextBlock Text="{Binding Module}"/><TextBlock Grid.Column="1" Text="{Binding State}"/><TextBlock Grid.Column="2" Text="{Binding Detail}"/></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></TabItem>
-      </TabControl></Border>
+      <Grid Grid.Row="1" ColumnDefinitions="1.15*,1.45*,*,.8*,.8*,.8*,.8*" ColumnSpacing="8">
+        <Border Grid.Column="0" Classes="card">
+          <StackPanel Spacing="5">
+            <TextBlock Classes="caption" Text="장비 상태"/>
+            <TextBlock Classes="value" Text="{Binding StateText}" Foreground="{Binding StateBrush}" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="1" Classes="card">
+          <StackPanel Spacing="5">
+            <TextBlock Classes="caption" Text="시뮬레이션 시간"/>
+            <TextBlock Classes="value" Text="{Binding SimTime}" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="2" Classes="card">
+          <StackPanel Spacing="5">
+            <TextBlock Classes="caption" Text="평균 Tact"/>
+            <TextBlock Classes="value" Text="{Binding AverageTact}" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="3" Classes="card">
+          <StackPanel Spacing="5">
+            <TextBlock Classes="caption" Text="예상 WPH · 장/시간"/>
+            <TextBlock ToolTip.Tip="3600 ÷ 완료 웨이퍼 평균 Tact(초). 첫 웨이퍼 완료 후 표시. 전체 경과시간 기준 실적 처리량과 다름." Classes="value" Text="{Binding Uph}" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="4" Classes="card">
+          <StackPanel Spacing="5">
+            <TextBlock Classes="caption" Text="완료 / 전체"/>
+            <TextBlock Classes="value" Text="{Binding WaferProgress}" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="5" Classes="card">
+          <StackPanel Spacing="2">
+            <TextBlock Classes="caption" Text="저장 큐"/>
+            <TextBlock Classes="value" Text="{Binding QueueText}" TextTrimming="CharacterEllipsis"/><ProgressBar MinWidth="0" Height="3" Value="{Binding QueueFraction}" Maximum="1"/>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="6" Classes="card">
+          <StackPanel Spacing="5">
+            <TextBlock Classes="caption" Text="활성 알람"/>
+            <TextBlock Classes="value" Text="{Binding AlarmCount}" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </Border>
+      </Grid>
+      <Grid Grid.Row="2" ColumnDefinitions="*,400" ColumnSpacing="8">
+        <Border Classes="card" Grid.Column="0">
+          <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,Auto" RowSpacing="6">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Text="3D 개념 장비" FontSize="15" FontWeight="SemiBold"/>
+
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+              <Button Content="기본 시점" Click="Reset3D"/>
+              <Button Content="측정부 확대" Click="Close3D"/>
+              <Button Content="외장 숨김" Click="Cut3D"/>
+              <Button Content="확대 창" Click="Open3D"/>
+              <Button Content="2D" Click="Toggle2D"/>
+            </StackPanel>
+            <Grid Grid.Row="1" Grid.ColumnSpan="2">
+              <local:Equipment3DView x:Name="Scene3D" Snapshot="{Binding Snapshot}" ActiveStep="{Binding ActiveStep}" RobotStep="{Binding RobotStep}" WaferDiameterMm="{Binding WaferDiameterMm}" RobotMoveTime="{Binding RobotMoveTime}"/>
+              <local:EquipmentView x:Name="Scene2D" Snapshot="{Binding Snapshot}" IsVisible="False"/>
+            </Grid>
+            <Grid Grid.Row="2" Grid.ColumnSpan="2" RowDefinitions="30,36" RowSpacing="4">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                  <Button Content="기록 보기" Command="{Binding EnterReplayCommand}"/>
+                  <Button Content="실시간" Command="{Binding ExitReplayCommand}"/>
+                  <Button Content="◀" ToolTip.Tip="이전 이벤트" Command="{Binding PreviousEventCommand}"/>
+                  <Button Content="재생/정지" Command="{Binding ToggleReplayCommand}"/>
+                  <Button Content="▶" ToolTip.Tip="다음 이벤트" Command="{Binding NextEventCommand}"/>
+                  <ComboBox Width="65" MinHeight="28" ItemsSource="{Binding ReplaySpeeds}" SelectedItem="{Binding ReplaySpeed, Mode=TwoWay}"/>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Classes="caption" Text="{Binding ReplayMode}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ReplayMode}"/>
+                <TextBlock Grid.Column="2" Text="{Binding ReplayTime}" VerticalAlignment="Center" FontFamily="Menlo" FontSize="11"/>
+              </Grid>
+              <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <Slider MinHeight="32" Minimum="{Binding ReplayMinimum}" Maximum="{Binding ReplayMaximum}" Value="{Binding ReplayPosition, Mode=TwoWay}" IsEnabled="{Binding IsReplayView}"/>
+                <TextBlock Grid.Column="1" Classes="caption" Text="{Binding ReplayCoverage}" VerticalAlignment="Center"/>
+              </Grid>
+            </Grid>
+          </Grid>
+        </Border>
+        <Border Classes="card" Grid.Column="1" Padding="4">
+          <TabControl x:Name="InspectorTabs">
+            <TabItem Header="로그">
+              <Grid RowDefinitions="Auto,*">
+                <CheckBox Content="대기만" IsChecked="{Binding WaitsOnly}"/>
+                <ListBox Background="{DynamicResource BackgroundBrush}" Grid.Row="1" ItemsSource="{Binding VisibleLogs}" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="c:StepEvent">
+                      <Border BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="0,3">
+                        <StackPanel Spacing="3">
+                          <Grid ColumnDefinitions="40,*,50,40,80" ColumnSpacing="5">
+                            <TextBlock Text="{Binding Seq, StringFormat='# {0}'}" Foreground="{DynamicResource MutedBrush}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Start, Converter={StaticResource DurationText}}"/>
+                            <TextBlock Grid.Column="2" Text="{Binding WaferId}"/>
+                            <TextBlock Grid.Column="3" Text="{Binding SiteIndex, StringFormat='P{0}'}"/>
+                            <TextBlock Grid.Column="4" Text="{Binding Duration, Converter={StaticResource DurationText}}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Duration}"/>
+                          </Grid>
+                          <Grid ColumnDefinitions="88,*" ColumnSpacing="8">
+                            <TextBlock Text="{Binding Module}" Foreground="{DynamicResource PrimaryBrush}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Phase}"/>
+                          </Grid>
+                          <TextBlock IsVisible="{Binding WaitReason, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" Text="{Binding WaitReason}" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"/>
+                          <TextBlock IsVisible="{Binding Note, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" Text="{Binding Note}" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"/>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Grid>
+            </TabItem>
+
+
+            <TabItem Header="웨이퍼 맵">
+              <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
+                <ComboBox ItemsSource="{Binding Summaries}" SelectedItem="{Binding SelectedSummary, Mode=TwoWay}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="c:WaferSummary">
+                      <TextBlock Text="{Binding WaferId}"/>
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <local:WaferMapView Grid.Row="1" Summary="{Binding SelectedSummary}"/>
+                <StackPanel Grid.Row="2" DataContext="{Binding SelectedSummary}" x:DataType="c:WaferSummary">
+                  <TextBlock Text="{Binding MeanRs, StringFormat='평균 {0:F3} Ω/sq'}"/>
+                  <TextBlock Text="{Binding SigmaRs, StringFormat='σ {0:F3}'}"/>
+                  <TextBlock Text="{Binding UniformitySigmaPct, StringFormat='균일도 σ {0:F2}%'}"/>
+                  <TextBlock Text="{Binding UniformityRangePct, StringFormat='균일도 범위 {0:F2}%'}"/>
+                  <TextBlock Text="{Binding RepeatabilityPct, StringFormat='재현성 {0:F2}%'}"/>
+                  <TextBlock Text="{Binding Tact, Converter={StaticResource DurationText}, StringFormat='Tact {0}'}"/>
+                  <TextBlock Text="{Binding MinRs, StringFormat='범례 최소 {0:F3}'}"/>
+                  <TextBlock Text="{Binding MaxRs, StringFormat='범례 최대 {0:F3}'}"/>
+                </StackPanel>
+              </Grid>
+            </TabItem>
+
+
+            <TabItem Header="통계">
+              <ScrollViewer>
+                <StackPanel Spacing="10">
+                  <TextBlock Text="{Binding WaitRatio}"/>
+                  <ItemsControl ItemsSource="{Binding Phases}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="local:PhaseBar">
+                        <Grid ColumnDefinitions="110,*,65" Margin="0,3">
+                          <TextBlock Text="{Binding Phase}"/>
+                          <ProgressBar Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Percent}"/>
+                          <TextBlock Grid.Column="2" Text="{Binding Seconds, StringFormat='{}{0:F1}s'}"/>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="두 실행 비교" FontWeight="Bold"/>
+                  <ComboBox ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRunA, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="c:RunRecord">
+                        <TextBlock Text="{Binding RunId}"/>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <ComboBox ItemsSource="{Binding Runs}" SelectedItem="{Binding SelectedRunB, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="c:RunRecord">
+                        <TextBlock Text="{Binding RunId}"/>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <Button Content="비교" Command="{Binding CompareCommand}"/>
+                  <TextBlock Text="{Binding ComparisonText}"/>
+                  <ItemsControl ItemsSource="{Binding PhaseDeltas}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="c:PhaseDelta">
+                        <Grid ColumnDefinitions="110,80,80,*">
+                          <TextBlock Text="{Binding Phase}"/>
+                          <TextBlock Grid.Column="1" Text="{Binding A}"/>
+                          <TextBlock Grid.Column="2" Text="{Binding B}"/>
+                          <TextBlock Grid.Column="3" Text="{Binding Delta}"/>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </ScrollViewer>
+            </TabItem>
+
+
+            <TabItem Header="알람">
+              <ScrollViewer>
+                <ItemsControl ItemsSource="{Binding Alarms}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="c:Alarm">
+                      <Border BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="4">
+                        <StackPanel>
+                          <TextBlock Text="{Binding Code}" FontWeight="Bold"/>
+                          <TextBlock Text="{Binding Module}"/>
+                          <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
+                          <TextBlock Text="{Binding SetAt}"/>
+                          <Button Content="Ack" Command="{Binding $parent[Window].DataContext.AckCommand}" CommandParameter="{Binding Id}" IsEnabled="{Binding !Acked}"/>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </TabItem>
+
+
+            <TabItem Header="장치">
+              <ItemsControl ItemsSource="{Binding Modules}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="c:ModuleStatus">
+                    <Grid ColumnDefinitions="90,85,*" Margin="0,4">
+                      <TextBlock Text="{Binding Module}"/>
+                      <TextBlock Grid.Column="1" Text="{Binding State}"/>
+                      <TextBlock Grid.Column="2" Text="{Binding Detail}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </TabItem>
+
+
+          </TabControl>
+        </Border>
+      </Grid>
+      <Border Classes="card" Grid.Row="3">
+        <Grid RowDefinitions="Auto,*" RowSpacing="5">
+          <StackPanel Orientation="Horizontal" Spacing="9" Height="36">
+            <TextBlock Text="모듈 타임라인" FontSize="15" FontWeight="SemiBold"/>
+            <TextBlock Text="최근 초" VerticalAlignment="Center"/>
+            <Slider Width="120" MinHeight="32" Minimum="10" Maximum="300" Value="{Binding WindowSeconds, Mode=TwoWay}"/>
+            <TextBlock Text="{Binding WindowSeconds, StringFormat='{}{0:F0}s'}" VerticalAlignment="Center"/>
+          </StackPanel>
+          <local:GanttView Grid.Row="1" Snapshot="{Binding Snapshot}" Steps="{Binding TimelineSteps}" WindowSeconds="{Binding WindowSeconds}"/>
+        </Grid>
+      </Border>
+      <Border x:Name="RecipeDrawer" IsVisible="False" Grid.Column="0" Grid.Row="0" Grid.RowSpan="4" HorizontalAlignment="Left" Width="350" Margin="8,8,0,8" Classes="card" BorderBrush="{DynamicResource PrimaryBrush}" BorderThickness="1" ZIndex="10">
+        <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*,Auto" RowSpacing="8">
+          <TextBlock Text="레시피" FontSize="17" FontWeight="SemiBold"/>
+          <Button Grid.Column="1" Content="닫기" Click="ToggleRecipe"/>
+          <ScrollViewer Grid.Row="1" Grid.ColumnSpan="2">
+            <ItemsControl ItemsSource="{Binding RecipeGroups}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:RecipeGroup">
+                  <StackPanel Spacing="7" Margin="0,0,0,16">
+                    <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="{DynamicResource PrimaryBrush}" FontSize="14"/>
+                    <ItemsControl ItemsSource="{Binding TextFields}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:RecipeField">
+                          <StackPanel Margin="0,0,0,5">
+                            <TextBlock Classes="caption" Text="{Binding Label}"/>
+                            <TextBox Text="{Binding Value, Mode=TwoWay}"/>
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding ChoiceFields}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:RecipeField">
+                          <StackPanel Margin="0,0,0,5">
+                            <TextBlock Classes="caption" Text="{Binding Label}"/>
+                            <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Value, Mode=TwoWay}"/>
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding BooleanFields}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:RecipeField">
+                          <CheckBox Content="{Binding Label}" IsChecked="{Binding BoolValue, Mode=TwoWay}"/>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+          <ScrollViewer Grid.Row="2" Grid.ColumnSpan="2" MaxHeight="230">
+            <StackPanel Spacing="7">
+              <StackPanel Spacing="7">
+                <TextBlock Classes="caption" Text="프리셋은 가상 예시 · 실제 레시피 아님"/>
+                <StackPanel Orientation="Horizontal">
+                  <Button Content="13점 · 대기 누적" Command="{Binding WaitingPresetCommand}"/>
+                  <Button Content="13점 · 개선 가정" Command="{Binding ImprovedPresetCommand}"/>
+                </StackPanel>
+                <TextBlock Classes="caption" Text="CustomSites: XUm,YUm; XUm,YUm"/>
+                <StackPanel Orientation="Horizontal" Spacing="5">
+                  <Button Content="저장" Command="{Binding SaveRecipeCommand}"/>
+                  <Button Content="불러오기" Command="{Binding LoadRecipeCommand}"/>
+                </StackPanel>
+                <TextBlock Text="웨이퍼 수"/>
+                <NumericUpDown Minimum="1" Maximum="25" Value="{Binding WaferCount, Mode=TwoWay}"/>
+                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="{DynamicResource PrimaryBrush}"/>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Border>
     </Grid>
+    <Border Grid.Column="1" VerticalAlignment="Bottom" Margin="10,0,10,5" Background="{DynamicResource BackgroundBrush}">
+      <TextBlock Text="{Binding Message}" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource PrimaryBrush}" FontSize="11"/>
+    </Border>
   </Grid>
 </Window>

@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Contracts\Contracts.csproj" />
+    <ProjectReference Include="..\Core.Visualization\Core.Visualization.csproj" />
     <ProjectReference Include="..\Core.Sequence\Core.Sequence.csproj" />
     <ProjectReference Include="..\Core.Measurement\Core.Measurement.csproj" />
     <ProjectReference Include="..\Devices\Devices.csproj" />

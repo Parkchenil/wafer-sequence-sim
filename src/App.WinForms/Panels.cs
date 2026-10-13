@@ -29,7 +29,7 @@ internal static class DrawingMath
 
 internal abstract class BufferedPanel : Panel
 {
-    protected BufferedPanel() { DoubleBuffered = true; BackColor = Color.FromArgb(25, 32, 43); ForeColor = Color.WhiteSmoke; }
+    protected BufferedPanel() { DoubleBuffered = true; BackColor = DashboardTheme.Background; ForeColor = DashboardTheme.Text; }
     protected static void Label(Graphics g, string text, Font font, Brush brush, float x, float y) => g.DrawString(text, font, brush, x, y);
 }
 
@@ -161,7 +161,7 @@ internal sealed class GanttPanel : BufferedPanel
             var x2 = DrawingMath.TimeToPixel(ev.End.Value > Now ? Now : ev.End.Value, start, window, left, width);
             var y = top + Array.IndexOf(modules, ev.Module) * row + 2;
             var rect = new RectangleF(x1, y, Math.Max(2, x2 - x1), Math.Max(6, row - 5));
-            using Brush fill = ev.IsWait ? new HatchBrush(HatchStyle.ForwardDiagonal, DrawingMath.PhaseColor(ev.Phase), Color.FromArgb(48, 52, 60)) : new SolidBrush(DrawingMath.PhaseColor(ev.Phase));
+            using Brush fill = ev.IsWait ? new HatchBrush(HatchStyle.ForwardDiagonal, DrawingMath.PhaseColor(ev.Phase), DashboardTheme.Panel) : new SolidBrush(DrawingMath.PhaseColor(ev.Phase));
             g.FillRectangle(fill, rect); _hits.Add((rect, ev));
             if (previous != ev.WaferId)
             {

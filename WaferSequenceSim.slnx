@@ -5,6 +5,7 @@
     <Project Path="src/Contracts/Contracts.csproj" />
     <Project Path="src/Core.Measurement/Core.Measurement.csproj" />
     <Project Path="src/Core.Sequence/Core.Sequence.csproj" />
+    <Project Path="src/Core.Visualization/Core.Visualization.csproj" />
     <Project Path="src/Devices/Devices.csproj" />
   </Folder>
   <Folder Name="/tests/">

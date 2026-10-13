@@ -16,8 +16,8 @@ public sealed class GanttView : Control
     public double WindowSeconds { get => GetValue(WindowSecondsProperty); set => SetValue(WindowSecondsProperty, value); }
     private readonly List<(Rect Rect, StepEvent Step)> hit = [];
     private static readonly IBrush[] Colors = Enum.GetValues<PhaseKind>().Select(x => (IBrush)new SolidColorBrush(DisplayMath.PhaseColor(x))).ToArray();
-    private static readonly IBrush BackgroundBrush = new SolidColorBrush(Color.Parse("#121D2A"));
-    private static readonly Pen GridPen = new(Brushes.DarkSlateGray, 0.5);
+    private static IBrush BackgroundBrush => Application.Current?.Resources["BackgroundBrush"] as IBrush ?? Brushes.Black;
+    private static Pen GridPen => new(Application.Current?.Resources["HairlineBrush"] as IBrush ?? Brushes.Gray, 0.5);
     private static readonly Pen BoundaryPen = new(Brushes.Gold, 1);
     private static readonly Pen WaitPen = new(Brushes.White, 0.5);
     private static readonly Dictionary<string, FormattedText> TextCache = [];

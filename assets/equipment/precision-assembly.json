@@ -1,0 +1,31 @@
+{
+  "projectId": "d4899871-d2d7-4214-a28f-26b1049d0545",
+  "projectUrl": "https://higgsfield.ai/3d-jutsu/d4899871-d2d7-4214-a28f-26b1049d0545",
+  "revision": 4,
+  "sha256": "626f3e684b535dbd8c4b50bbb993570760cb7602cf70fe433e520862c4a88d2a",
+  "units": "metre",
+  "upAxis": "Y",
+  "meshCount": 191,
+  "triangleCount": 22608,
+  "waferDiameterM": 0.3,
+  "slotCount": 25,
+  "pinCount": 4,
+  "provenance": "Higgsfield 3D Jutsu API에서 절차적으로 제작한 가상 4PP 장비. 실제 Mirror 장비의 내부 구조를 확정한 모델이 아닙니다.",
+  "roleContract": {
+    "STATIC": "고정",
+    "COVER": "외장 표시 전환",
+    "STAGE": "XY 이동",
+    "PROBE": "Z 이동",
+    "ALIGNER_rotor": "정렬 회전",
+    "ROBOT": "local +X 강체 관절",
+    "WAFER_template": "실제 상태별 인스턴스 원본",
+    "LAMP": "상태등"
+  },
+  "robotCarrierLevelsM": {
+    "upper": 0.075,
+    "lower": 0.09,
+    "blade": 0.13,
+    "padTop": 0.137,
+    "waferBottom": 0.137
+  }
+}

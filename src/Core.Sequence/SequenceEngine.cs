@@ -426,6 +426,7 @@ public sealed class SequenceEngine : ISimulator
         {
             var pick = await Step(id, null, ModuleId.Robot, PhaseKind.Align, c => _d.Robot.PickFromAlignerAsync(r.RobotMoveTime, c), ct, note: "얼라이너에서 집기");
             if (!pick.Ok) return false;
+            _tracker.Update(id, WaferLocation.RobotArm);
             var place = await Step(id, null, ModuleId.Robot, PhaseKind.PlaceOnChuck, c => _d.Robot.PlaceOnChuckAsync(r.RobotMoveTime, c), ct);
             if (!place.Ok) return false;
             _tracker.Update(id, WaferLocation.Chuck);

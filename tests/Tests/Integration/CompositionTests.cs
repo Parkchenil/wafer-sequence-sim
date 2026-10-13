@@ -1,3 +1,4 @@
+using Core.Visualization;
 using Contracts;
 using Core.Measurement;
 using Core.Sequence;
@@ -54,5 +55,50 @@ public sealed class CompositionTests
         var result = await engine.StartAsync(recipe, 1, cts.Token);
         Assert.True(result.Ok, result.Message);
         Assert.Equal(1, engine.Snapshot.Stats.WafersDone);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task 가상_13점_프리셋이_실제_엔진에서_동작한다(bool improved)
+    {
+        var (_, devices, _, engine) = await BuildAsync(false);
+        await using var _ = devices;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        Assert.True((await engine.InitializeAsync(cts.Token)).Ok);
+        var recipe = (improved ? ConceptPresets.ImprovementExample() : ConceptPresets.WaitingExample()) with { Clock = ClockMode.Instant };
+        WaferSummary? summary = null;
+        var replay = new RunReplay();
+        engine.SnapshotChanged += replay.Record;
+        engine.StepLogged += step => { replay.Record(step); replay.Record(engine.Snapshot); };
+        engine.WaferCompleted += value => summary = value;
+        var result = await engine.StartAsync(recipe, 1, cts.Token);
+        Assert.True(result.Ok, result.Message);
+        Assert.NotNull(summary);
+        Assert.Equal(13, summary!.SiteCount);
+        Assert.Equal(13, engine.Snapshot.Sites.Count);
+        replay.Record(engine.Snapshot);
+        Assert.Equal(EquipmentState.Completed,replay.Seek(replay.Duration)!.State);
+        Assert.NotEmpty(replay.VisibleEvents(replay.Duration));
+        Assert.Null(replay.Seek(replay.StartTime-TimeSpan.FromTicks(1)));
+    }
+    [Fact]
+    public async Task 척으로_반송하는_동안_웨이퍼가_로봇에_있다()
+    {
+        var (_,devices,_,engine)=await BuildAsync(false);
+        await using var disposal=devices;
+        using var cts=new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        Assert.True((await engine.InitializeAsync(cts.Token)).Ok);
+        var locations=new List<WaferLocation>();
+        engine.StepLogged+=step=>
+        {
+            if(step.Phase==PhaseKind.PlaceOnChuck && step.End is null)
+                locations.Add(engine.Snapshot.Wafers.Single(w=>w.WaferId==step.WaferId).Location);
+        };
+        var recipe=ConceptPresets.ImprovementExample() with { Clock=ClockMode.Instant,Pattern=SitePattern.Center1 };
+        var result=await engine.StartAsync(recipe,2,cts.Token);
+        Assert.True(result.Ok,result.Message);
+        Assert.Equal(2,locations.Count);
+        Assert.All(locations,location=>Assert.Equal(WaferLocation.RobotArm,location));
+        Assert.Equal(2,engine.Snapshot.Stats.WafersDone);
     }
 }
