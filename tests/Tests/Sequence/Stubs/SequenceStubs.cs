@@ -33,7 +33,7 @@ public sealed class StubDevices(VirtualTimeProvider clock) : IDeviceSet, IDevice
     public async Task<DeviceResult<AlignOffset>> InspectAsync(TimeSpan processingTime, CancellationToken ct) { await Task.Delay(processingTime, clock, ct); return DeviceResult<AlignOffset>.Success(new(0, 0, 0, 1)); }
     public Task<DeviceResult> OpenAsync(TimeSpan timeout, CancellationToken ct) { DoorOpen = true; return Task.FromResult(DeviceResult.Success); }
     public Task<DeviceResult> CloseAsync(TimeSpan timeout, CancellationToken ct) { DoorOpen = false; return Task.FromResult(DeviceResult.Success); }
-    public Task<DeviceResult<IReadOnlyList<int>>> MapSlotsAsync(TimeSpan mappingTime, CancellationToken ct) => Task.FromResult(DeviceResult<IReadOnlyList<int>>.Success([1, 2, 3, 4]));
+    public Task<DeviceResult<IReadOnlyList<int>>> MapSlotsAsync(TimeSpan mappingTime, CancellationToken ct) => Task.FromResult(DeviceResult<IReadOnlyList<int>>.Success(Enumerable.Range(1, 25).ToArray()));
     private async Task<DeviceResult> RobotMove(TimeSpan time, bool holding, CancellationToken ct) { await Task.Delay(time, clock, ct); HoldingWafer = holding; return DeviceResult.Success; }
     public Task<DeviceResult> PickFromSlotAsync(int slot, TimeSpan moveTime, CancellationToken ct) => RobotMove(moveTime, true, ct);
     public Task<DeviceResult> PlaceOnAlignerAsync(TimeSpan moveTime, CancellationToken ct) => RobotMove(moveTime, false, ct);

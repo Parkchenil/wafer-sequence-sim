@@ -49,6 +49,8 @@ public sealed class WaferTracker
     private readonly List<WaferTrack> _items = []; private readonly object _gate = new();
     public IReadOnlyList<WaferTrack> Items { get { lock (_gate) return _items.ToArray(); } }
     public void Reset(int count, int sites) { lock (_gate) { _items.Clear(); for (int i = 1; i <= count; i++) _items.Add(new($"W{i:D3}", i, WaferLocation.LoadPort, WaferStatus.Pending, 0, sites)); } }
+    /// <summary>로드포트 매핑 결과(점유 슬롯 목록)로 웨이퍼별 슬롯을 다시 배정한다. 이전 로트가 중단돼 비어 있는 슬롯을 건너뛴다.</summary>
+    public void AssignSlots(IReadOnlyList<int> slots) { lock (_gate) { for (int i = 0; i < _items.Count && i < slots.Count; i++) _items[i] = _items[i] with { Slot = slots[i] }; } }
     public void Update(string id, WaferLocation? location = null, WaferStatus? status = null, int? sitesDone = null)
     { lock (_gate) { var i = _items.FindIndex(x => x.WaferId == id); if (i >= 0) { var w = _items[i]; _items[i] = w with { Location = location ?? w.Location, Status = status ?? w.Status, SitesDone = sitesDone ?? w.SitesDone }; } } }
 }
@@ -75,6 +77,7 @@ public sealed class SequenceEngine : ISimulator
     private readonly Dictionary<string, (TimeSpan Start, TimeSpan End)> _saveSchedule = []; private TimeSpan _saveAvailableAt;
     private readonly SemaphoreSlim _robot = new(1), _aligner = new(1), _chuck = new(1), _safetyGate = new(1);
     private CancellationTokenSource? _runCts; private TaskCompletionSource _runDone = new(TaskCreationOptions.RunContinuationsAsynchronously); private TaskCompletionSource _resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private IReadOnlyList<int> _slots = [];
     private RecipeDto? _recipe; private IReadOnlyList<SitePoint> _points = []; private Random _random = new(1); private bool _pause, _aborting, _completed, _vacuumOn, _vacuumConfirmed, _lampOn; private string? _currentWafer; private int? _currentSite; private long _seq, _alarmSeq; private bool _chuckHeld; private int _stageMoving, _queueDepth, _queueCapacity, _starting, _initializing, _emoAlarmRaised; private string _runId = ""; private DateTimeOffset _startedAtWall; private DeviceResult _emoCheck = DeviceResult.Fail(AlarmCode.ConfigError, "EMO 상태 미확인");
     public SequenceEngine(IDeviceSet devices, IWaitHelper wait, VirtualTimeProvider clock, IRsCalculator rs, ISitePatternProvider sites, IResultStore? store, ILogDigest? digest)
     { _d = devices; _wait = wait; _clock = clock; _rs = rs; _sites = sites; _store = store; _digest = digest; Interlock = new Interlock(devices, () => _vacuumConfirmed, () => _recipe?.ZSafeHeightUm ?? 300, () => Volatile.Read(ref _emoCheck), () => Volatile.Read(ref _stageMoving) != 0); }
@@ -287,15 +290,16 @@ public sealed class SequenceEngine : ISimulator
                 var lift = await Step("", null, ModuleId.ZHead, PhaseKind.LiftZ, c => _d.ZAxis.MoveAbsoluteAsync(recipe.ZSafeHeightUm, recipe.TravelSpeedMmPerS, recipe.AccelMmPerS2, TimeSpan.FromSeconds(30), c), token);
                 if (!lift.Ok) return lift;
             }
-            var map = await Step("", null, ModuleId.LoadPort, PhaseKind.MapSlots, async c => { var open = await _d.LoadPort.OpenAsync(TimeSpan.FromSeconds(10), c); if (!open.Ok) return open; var slots = await _d.LoadPort.MapSlotsAsync(TimeSpan.FromSeconds(1), c); return slots.Ok ? DeviceResult.Success : DeviceResult.Fail(slots.Code, slots.Message); }, token); if (!map.Ok) return map;
+            var map = await Step("", null, ModuleId.LoadPort, PhaseKind.MapSlots, async c => { var open = await _d.LoadPort.OpenAsync(TimeSpan.FromSeconds(10), c); if (!open.Ok) return open; var slots = await _d.LoadPort.MapSlotsAsync(TimeSpan.FromSeconds(1), c); if (!slots.Ok) return DeviceResult.Fail(slots.Code, slots.Message); _slots = slots.Value ?? []; return _slots.Count >= waferCount ? DeviceResult.Success : DeviceResult.Fail(AlarmCode.ConfigError, $"로드포트 웨이퍼 부족: 매핑 {_slots.Count}장, 요청 {waferCount}장"); }, token); if (!map.Ok) return map;
+            _tracker.AssignSlots(_slots); // 웨이퍼 i는 i번째 점유 슬롯에서 집는다(이전 로트 중단으로 빈 슬롯은 건너뜀)
             if (recipe.Save == SaveMode.Async) { channel = Channel.CreateBounded<WaferSummary>(new BoundedChannelOptions(recipe.SaveQueueCapacity) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true }); consumer = Consume(channel.Reader, token); }
             for (int i = 1; i <= waferCount; i++)
             {
                 var id = $"W{i:D3}"; _currentWafer = id; var began = _clock.Elapsed;
-                if (i == 1 || !recipe.UnloadOverlap) { if (!await Prepare(id, i, recipe, token)) return LastFailure(); }
+                if (i == 1 || !recipe.UnloadOverlap) { if (!await Prepare(id, _slots[i - 1], recipe, token)) return LastFailure(); }
                 else { if (prepared is null || !await prepared || !await PlacePrepared(id, recipe, token)) return LastFailure(); }
                 if (_d is IDeviceContext waferContext) waferContext.SetCurrentWafer(id);
-                if (recipe.UnloadOverlap && i < waferCount) prepared = Prefetch($"W{i + 1:D3}", i + 1, recipe, token);
+                if (recipe.UnloadOverlap && i < waferCount) prepared = Prefetch($"W{i + 1:D3}", _slots[i], recipe, token);
                 if (!await MeasureWafer(id, recipe, token)) return LastFailure();
                 var summary = _rs.Summarize(id, _measurements, _clock.Elapsed - began); _tracker.Update(id, status: WaferStatus.Measured);
                 if (recipe.Save == SaveMode.Async && channel is not null)
@@ -310,7 +314,7 @@ public sealed class SequenceEngine : ISimulator
                     }
                 }
                 if (prepared is not null && !await prepared) return LastFailure();
-                if (!await Unload(id, i, recipe, token)) return LastFailure();
+                if (!await Unload(id, _slots[i - 1], recipe, token)) return LastFailure();
                 _tracker.Update(id, WaferLocation.Done);
                 if (recipe.Save == SaveMode.Sync) { var save = await Save(summary, recipe, token); if (!save.Ok) return save; }
                 var finalSummary = summary with { Tact = _clock.Elapsed - began }; lock (_gate) _summaries.Add(finalSummary); try { WaferCompleted?.Invoke(finalSummary); } catch { } Publish();
