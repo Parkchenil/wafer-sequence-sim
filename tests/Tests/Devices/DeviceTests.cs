@@ -161,6 +161,24 @@ public class DeviceTests
         Assert.Equal(1000, axis.PositionUm);
     }
     [Fact]
+    public async Task 로봇_인계_순간과_슬롯_높이()
+    {
+        var clock = Clock(); var io = new InMemoryDigitalIO(clock);
+        var port = new SimulatedLoadPort(io, new WaitHelper(clock), clock, [1, 10]);
+        var robot = new SimulatedRobot(io, clock, io, port);
+        var states = new List<RobotTransportTelemetry>();
+        robot.TransportChanged += states.Add;
+        Assert.True((await robot.PickFromSlotAsync(10, TimeSpan.FromSeconds(1), default)).Ok);
+        Assert.Contains(states, x => x.Subphase == "상승 접촉" && !x.HoldingWafer);
+        Assert.Contains(states, x => x.Subphase == "보유 확인" && x.HoldingWafer);
+        Assert.Equal(RobotGeometry.SlotBottom(10), robot.Transport.YMetres, 6);
+        Assert.Equal(-.07, robot.Transport.ZMetres, 6);
+        Assert.True((await robot.PlaceOnAlignerAsync(TimeSpan.FromSeconds(1), default)).Ok);
+        Assert.Contains(states, x => x.Subphase == "하강 인계" && x.HoldingWafer);
+        Assert.False(robot.HoldingWafer);
+        Assert.True(robot.Transport.AlignerOccupied);
+    }
+    [Fact]
     public async Task 슬롯_점유와_로봇_상태()
     {
         var clock = Clock(); var io = new InMemoryDigitalIO(clock);
@@ -191,6 +209,43 @@ public class DeviceTests
         await using var serverTransport = pair.Server;
         var io = new ModbusDigitalIO(new ModbusTcpClient(clientTransport, TimeProvider.System, TimeSpan.FromMilliseconds(20)), new IoMap(new InMemoryDigitalIO(Clock()).Points));
         Assert.Equal(AlarmCode.CommTimeout, (await io.ReadAsync(IoPoints.LampOn, default)).Code);
+    }
+    [Theory]
+    [InlineData(1)] [InlineData(13)] [InlineData(25)]
+    public async Task 슬롯_인계면과_전체시간이_일치한다(int slot)
+    {
+        var clock=Clock();var io=new InMemoryDigitalIO(clock);
+        var port=new SimulatedLoadPort(io,new WaitHelper(clock),clock,[slot]);
+        var robot=new SimulatedRobot(io,clock,io,port);
+        var transitions=new List<RobotTransportTelemetry>();var previous=false;
+        robot.TransportChanged+=s=>{if(s.HoldingWafer!=previous){transitions.Add(s);previous=s.HoldingWafer;}};
+        var before=clock.Elapsed;var duration=TimeSpan.FromTicks(10000003);
+        Assert.True((await robot.PickFromSlotAsync(slot,duration,default)).Ok);
+        Assert.Equal(duration,clock.Elapsed-before);
+        var pickup=Assert.Single(transitions);
+        Assert.Equal(-.69,pickup.XMetres,8);Assert.Equal(.28,pickup.ZMetres,8);
+        Assert.Equal(RobotGeometry.SlotBottom(slot),pickup.YMetres+RobotGeometry.PadOffset,8);
+        Assert.False(port.HasWafer(slot));
+        Assert.True((await robot.PlaceOnAlignerAsync(duration,default)).Ok);
+        Assert.Equal(2,transitions.Count);var deposit=transitions[1];
+        Assert.Equal(-.12,deposit.XMetres,8);Assert.Equal(.34,deposit.ZMetres,8);
+        Assert.Equal(RobotGeometry.AlignerBottom,deposit.YMetres+RobotGeometry.PadOffset,8);
+        Assert.True(deposit.AlignerOccupied);Assert.False(robot.Extended);
+    }
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public async Task 취소는_마지막위치와_인계전소유권을_보존한다(bool placing)
+    {
+        var clock=Clock();var io=new InMemoryDigitalIO(clock);
+        var port=new SimulatedLoadPort(io,new WaitHelper(clock),clock,[1]);
+        var robot=new SimulatedRobot(io,clock,io,port);
+        if(placing)await robot.PickFromSlotAsync(1,TimeSpan.FromSeconds(1),default);
+        using var stop=new CancellationTokenSource();RobotTransportTelemetry? last=null;
+        robot.TransportChanged+=s=>{if(s.Subphase=="블레이드 진입" && s.Progress>.40 && !stop.IsCancellationRequested){last=s;stop.Cancel();}};
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>placing?robot.PlaceOnAlignerAsync(TimeSpan.FromSeconds(1),stop.Token):robot.PickFromSlotAsync(1,TimeSpan.FromSeconds(1),stop.Token));
+        Assert.NotNull(last);Assert.Equal(last!.XMetres,robot.Transport.XMetres);Assert.Equal(last.YMetres,robot.Transport.YMetres);Assert.Equal(last.ZMetres,robot.Transport.ZMetres);
+        Assert.Equal(placing,robot.HoldingWafer);Assert.Equal(!placing,port.HasWafer(1));Assert.False(robot.Transport.AlignerOccupied);
+        Assert.True(robot.Extended);Assert.True((await io.ReadAsync(IoPoints.RobotExtended,default)).Value);
     }
     private sealed class RecoveringField : IResistanceField
     {

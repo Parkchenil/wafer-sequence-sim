@@ -24,11 +24,11 @@ public static class Services
         var clock = new VirtualTimeProvider();
         var field = new ResistanceField(FieldSeed);
         var devices = DeviceSetFactory.CreateWithProtocols(clock, field, FieldSeed);
-        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "wafer-sequence-sim");
+        var directory = Environment.GetEnvironmentVariable("WAFER_SIM_DATA") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "wafer-sequence-sim");
         Directory.CreateDirectory(directory);
         var store = new SqliteResultStore(Path.Combine(directory, "runs.db"));
         store.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
-        var engine = new SequenceEngine(devices, new WaitHelper(clock), clock, new RsCalculator(), new SitePatternProvider(), store, new LogDigest());
+        var engine = new SequenceEngine(devices, new WaitHelper(clock), clock, new RsCalculator(), new SitePatternProvider(), new RecoverableResultStore(store, Path.Combine(directory, "recovery.jsonl")), new LogDigest());
         // 레시피 seed와 웨이퍼 ID는 엔진이 IDeviceContext로 직접 넘긴다(스냅샷 중계 없음)
         return (engine, store);
     }

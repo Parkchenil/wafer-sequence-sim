@@ -31,7 +31,7 @@ public sealed class DepthRasterizer
         var count=Width*Height;
         if(pixels.Length<count){pixels=new uint[count];depth=new float[count];}
         Array.Fill(pixels,0xff101b27u,0,count);Array.Fill(depth,float.PositiveInfinity,0,count);
-        var c=camera.Clamp();var target=precision?(closeUp?new Vector3(.35f,.11f,0):new Vector3(0,.2f,0)):(closeUp?new Vector3(.85f,.65f,0):new Vector3(0,.75f,0));
+        var c=camera.Clamp();var target=c.Target ?? (precision?(closeUp?new Vector3(.35f,.11f,0):new Vector3(0,.2f,0)):(closeUp?new Vector3(.85f,.65f,0):new Vector3(0,.75f,0)));
         var distance=precision?(closeUp?.8f:2.1f):7f;var eye=new Vector3(MathF.Sin(c.Yaw)*distance,distance*.43f+MathF.Sin(c.Pitch)*distance*.85f,MathF.Cos(c.Yaw)*distance)+target;
         var view=Matrix4x4.CreateLookAt(eye,target,Vector3.UnitY);
         var projection=Matrix4x4.CreatePerspectiveFieldOfView(Math.Clamp(.85f/(c.Zoom*(closeUp?1.65f:1)),.12f,2.3f),(float)Width/Height,.01f,100);

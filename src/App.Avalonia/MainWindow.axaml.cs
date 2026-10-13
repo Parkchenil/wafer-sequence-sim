@@ -18,9 +18,12 @@ public partial class MainWindow : Window
     private void ShowWaferMap(object? sender, RoutedEventArgs e) => InspectorTabs.SelectedIndex = 1;
     private void ShowStatistics(object? sender, RoutedEventArgs e) => InspectorTabs.SelectedIndex = 2;
     private void ShowAlarms(object? sender, RoutedEventArgs e) => InspectorTabs.SelectedIndex = 3;
+    private void ShowControl(object? sender, RoutedEventArgs e) => InspectorTabs.SelectedIndex = 5;
+    private void ShowExperiment(object? sender, RoutedEventArgs e) => InspectorTabs.SelectedIndex = 6;
     private void ShowDevices(object? sender, RoutedEventArgs e) => InspectorTabs.SelectedIndex = 4;
     private void Reset3D(object? sender, RoutedEventArgs e) => Scene3D.ResetCamera();
-    private void Close3D(object? sender, RoutedEventArgs e) => Scene3D.CloseUp = !Scene3D.CloseUp;
+    private void Transport3D(object? sender, RoutedEventArgs e) => Scene3D.TransportCamera();
+    private void Close3D(object? sender, RoutedEventArgs e) { Scene3D.ResetCamera(); Scene3D.CloseUp = !Scene3D.CloseUp; }
     private void Cut3D(object? sender, RoutedEventArgs e) => Scene3D.Cutaway = !Scene3D.Cutaway;
     private void Toggle2D(object? sender, RoutedEventArgs e) { Scene3D.IsVisible = !Scene3D.IsVisible; Scene2D.IsVisible = !Scene3D.IsVisible; }
     private void Open3D(object? sender, RoutedEventArgs e)
@@ -34,7 +37,7 @@ public partial class MainWindow : Window
         view.Bind(Equipment3DView.RobotMoveTimeProperty,new global::Avalonia.Data.Binding("RobotMoveTime") { Source=DataContext });
         var bar=new StackPanel { Orientation=global::Avalonia.Layout.Orientation.Horizontal,Spacing=6 };
         void Add(string label,EventHandler<RoutedEventArgs> action){var button=new Button { Content=label };button.Click+=action;bar.Children.Add(button);}
-        Add("◀ 회전",RotateLeft);Add("회전 ▶",RotateRight);Add("확대 +",ZoomIn);Add("축소 −",ZoomOut);Add("기본 시점",ResetExpanded);
+        Add("◀ 회전",RotateLeft);Add("회전 ▶",RotateRight);Add("확대 +",ZoomIn);Add("축소 −",ZoomOut);Add("기본 시점",ResetExpanded);Add("반송 확대",(_,_)=>view.TransportCamera());
         var panel=new DockPanel();DockPanel.SetDock(bar,Dock.Top);panel.Children.Add(bar);panel.Children.Add(view);
         sceneWindow=new Window { Title="3D 개념 장비 · 드래그 회전 / 휠 확대",Width=1100,Height=750,Content=panel };sceneWindow.Closed+=(_,_)=>expandedView=null;sceneWindow.Show(this);
     }

@@ -14,6 +14,7 @@ public sealed class RecipeEditModel
     public string? Validate()
     {
         var r = Recipe;
+        if (ControlValidation.Validate(r) is { } invalid) return invalid;
         if (r.SchemaVersion != 1) return "SchemaVersion: 지원 버전은 1임";
         if (string.IsNullOrWhiteSpace(r.Name)) return "Name: 이름이 필요함";
         if (!Positive(r.WaferDiameterMm)) return "WaferDiameterMm: 양수여야 함";
@@ -48,6 +49,16 @@ public sealed class RecipeEditModel
     private static bool Positive(double value) => double.IsFinite(value) && value > 0;
     private static bool NonNegative(TimeSpan value) => value >= TimeSpan.Zero;
 
+    [Category("품질"), Description("가상 반복 샘플 편차 판정 활성")]
+    public bool QualityEnabled { get => Recipe.QualityEnabled; set => Set(r => r with { QualityEnabled = value }); }
+    [Category("품질"), Description("σ/평균 허용값 (%)")]
+    public double QualityTolerancePct { get => Recipe.QualityTolerancePct; set => Set(r => r with { QualityTolerancePct = value }); }
+    [Category("품질"), Description("최소 반복 샘플 (2~1000)")]
+    public int QualityMinSamples { get => Recipe.QualityMinSamples; set => Set(r => r with { QualityMinSamples = value }); }
+    [Category("품질"), Description("품질 재측정 한도")]
+    public int QualityMaxRetry { get => Recipe.QualityMaxRetry; set => Set(r => r with { QualityMaxRetry = value }); }
+    [Category("품질"), Description("접촉 안정화 ms")]
+    public double ProbeSettleTimeMs { get => Recipe.ProbeSettleTime.TotalMilliseconds; set => Set(r => r with { ProbeSettleTime = TimeSpan.FromMilliseconds(value) }); }
     [Category("기본"), Description("레시피 형식 버전")]
     public int SchemaVersion { get => Recipe.SchemaVersion; set => Set(r => r with { SchemaVersion = value }); }
     [Category("기본"), Description("레시피 이름")]

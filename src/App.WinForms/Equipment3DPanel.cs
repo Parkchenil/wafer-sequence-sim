@@ -21,6 +21,7 @@ internal sealed class Equipment3DPanel : Panel
     private Bitmap? bitmap;
     private byte[] upload=[];
     public Equipment3DPanel(){DoubleBuffered=true;BackColor=Color.FromArgb(16,27,39);}
+    public void TransportCamera(){CloseUp=false;Camera=(Camera3D.Default with {Yaw=-.55f,Pitch=.20f,Zoom=1.65f,Target=new System.Numerics.Vector3(-.38f,.10f,.16f)}).Clamp();Invalidate();}
     public void ResetCamera(){Camera=Camera3D.Default;Invalidate();}
     public void Rotate(float yaw,float pitch){Camera=(Camera with { Yaw=Camera.Yaw+yaw,Pitch=Camera.Pitch+pitch }).Clamp();Invalidate();}
     public void Zoom(float factor){Camera=(Camera with { Zoom=Camera.Zoom*factor }).Clamp();Invalidate();}
@@ -36,7 +37,7 @@ internal sealed class Equipment3DPanel : Panel
     }
     private static System.Numerics.Vector2? PrecisionPoint(System.Numerics.Vector3 point,Camera3D camera,float width,float height,bool closeUp)
     {
-        var c=camera.Clamp();var target=closeUp?new System.Numerics.Vector3(.35f,.11f,0):new System.Numerics.Vector3(0,.2f,0);
+        var c=camera.Clamp();var target=c.Target ?? (closeUp?new System.Numerics.Vector3(.35f,.11f,0):new System.Numerics.Vector3(0,.2f,0));
         var distance=closeUp?.8f:2.1f;
         var eye=new System.Numerics.Vector3(MathF.Sin(c.Yaw)*distance,distance*.43f+MathF.Sin(c.Pitch)*distance*.85f,MathF.Cos(c.Yaw)*distance)+target;
         var view=System.Numerics.Matrix4x4.CreateLookAt(eye,target,System.Numerics.Vector3.UnitY);
@@ -74,9 +75,10 @@ internal sealed class Equipment3DPanel : Panel
         }
         var wait=snapshot.Modules.FirstOrDefault(m=>m.State==ModuleState.Waiting);
         using var overlay=new SolidBrush(Color.FromArgb(225,13,25,37));e.Graphics.FillRectangle(overlay,0,Math.Max(0,Height-66),Width,66);
-        var lines=new[]{"접촉식 4PP 계측기 · 분석 기반 개념 모델 · 내부 배치/로봇 경로 추정",
-            $"웨이퍼 {snapshot.CurrentWaferId??"—"} · 단계 {ActiveStep?.Phase.ToString()??"대기"} · Z 표시 ×{Concept3D.ZDisplayMagnification:0}: {snapshot.Motion.ZUm:F0} µm",
+        var lines=new[]{"접촉식 4PP 계측기 · 분석 기반 개념 모델 · 가상 반송 상태 연동",
+            CloseUp ? ControlText.Probe(snapshot).Replace("\n", " · ") : RobotTransportText.Describe(snapshot.RobotTransport),
             $"진공 {(snapshot.Motion.VacuumConfirmed?"확인":"대기")} · 초점 {(snapshot.Motion.CameraFocused?"확인":"대기")} · {(wait is null?"대기 없음":$"대기 {wait.Module}: {wait.Detail}")}"};
+        if (CloseUp) lines = ControlText.Probe(snapshot).Split('\n');
         for(var i=0;i<lines.Length;i++)e.Graphics.DrawString(lines[i],font,Brushes.WhiteSmoke,8,Math.Max(0,Height-65)+i*21);
     }
 }

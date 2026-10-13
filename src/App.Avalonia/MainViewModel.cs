@@ -70,12 +70,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public string QueueText => $"{Snapshot.Stats.SaveQueueDepth}/{Snapshot.Stats.SaveQueueCapacity}";
     public double QueueFraction => Snapshot.Stats.SaveQueueCapacity == 0 ? 0 : (double)Snapshot.Stats.SaveQueueDepth / Snapshot.Stats.SaveQueueCapacity;
     public int AlarmCount => Snapshot.ActiveAlarms.Count;
-    public bool CanInitialize => liveSnapshot.State == EquipmentState.Uninitialized;
-    public bool CanStart => liveSnapshot.State is EquipmentState.Idle or EquipmentState.Completed;
-    public bool CanPause => liveSnapshot.State == EquipmentState.Running;
-    public bool CanResume => liveSnapshot.State == EquipmentState.Paused;
-    public bool CanAbort => liveSnapshot.State is EquipmentState.Running or EquipmentState.Paused;
-    public bool CanReset => liveSnapshot.State is EquipmentState.Alarm or EquipmentState.Idle or EquipmentState.Completed;
+    public bool CanInitialize => !isReplayView && liveSnapshot.State == EquipmentState.Uninitialized;
+    public bool CanStart => !isReplayView && liveSnapshot.State is EquipmentState.Idle or EquipmentState.Completed;
+    public bool CanPause => !isReplayView && liveSnapshot.State == EquipmentState.Running;
+    public bool CanResume => !isReplayView && liveSnapshot.State == EquipmentState.Paused;
+    public bool CanAbort => !isReplayView && liveSnapshot.State is EquipmentState.Running or EquipmentState.Paused;
+    public bool CanReset => !isReplayView && liveSnapshot.State is EquipmentState.Alarm or EquipmentState.Idle or EquipmentState.Completed;
     public string WaitRatio => $"대기 비율 {Snapshot.Stats.WaitRatio:P1}";
     public MainViewModel(MainWindow owner)
     {
@@ -102,7 +102,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
     partial void OnSnapshotChanged(EquipmentSnapshot value)
     {
-        foreach (var name in new[] { nameof(StateText), nameof(StateBrush), nameof(SimTime), nameof(AverageTact), nameof(Uph), nameof(WaferProgress), nameof(QueueText), nameof(QueueFraction), nameof(AlarmCount), nameof(CanInitialize), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanAbort), nameof(CanReset), nameof(WaitRatio) }) OnPropertyChanged(name);
+        foreach (var name in new[] { nameof(ControlDetail), nameof(StateText), nameof(StateBrush), nameof(SimTime), nameof(AverageTact), nameof(Uph), nameof(WaferProgress), nameof(QueueText), nameof(QueueFraction), nameof(AlarmCount), nameof(CanInitialize), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanAbort), nameof(CanReset), nameof(WaitRatio) }) OnPropertyChanged(name);
     }
     partial void OnWaitsOnlyChanged(bool value)
     {
@@ -177,12 +177,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         if(!CanReplay)return;
         isReplayView=true;replayPlaying=false;ReplayPosition=replay.Duration.TotalSeconds;
-        OnReplayPositionChanged(ReplayPosition);OnPropertyChanged(nameof(ReplayMode));OnPropertyChanged(nameof(IsReplayView));
+        OnReplayPositionChanged(ReplayPosition);OnPropertyChanged(nameof(ReplayMode));OnPropertyChanged(nameof(IsReplayView));OnSnapshotChanged(Snapshot);
     }
     [RelayCommand] private void ExitReplay()
     {
         isReplayView=false;replayPlaying=false;Snapshot=liveSnapshot;UpdateDisplay(liveSnapshot);
-        RefreshVisibleLogs();OnPropertyChanged(nameof(TimelineSteps));OnPropertyChanged(nameof(ReplayMode));OnPropertyChanged(nameof(IsReplayView));
+        RefreshVisibleLogs();OnPropertyChanged(nameof(TimelineSteps));OnPropertyChanged(nameof(ReplayMode));OnPropertyChanged(nameof(IsReplayView));OnSnapshotChanged(Snapshot);
     }
     [RelayCommand] private void ToggleReplay(){if(!isReplayView)return;replayPlaying=!replayPlaying;if(replayPlaying&&ReplayPosition>=ReplayMaximum)ReplayPosition=ReplayMinimum;OnPropertyChanged(nameof(ReplayMode));}
     [RelayCommand] private void PreviousEvent(){if(isReplayView)ReplayPosition=replay.PreviousEvent(TimeSpan.FromSeconds(ReplayPosition)).TotalSeconds;}
@@ -216,9 +216,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             for (var i = 0; i < Logs.Count; i++) logIndex[Logs[i].Seq] = i;
         }
     }
-    [RelayCommand] private async Task InitializeAsync() => Report(await simulator.InitializeAsync(CancellationToken.None));
+    [RelayCommand] private async Task InitializeAsync() { if (!isReplayView) Report(await simulator.InitializeAsync(CancellationToken.None)); }
     [RelayCommand] private async Task StartAsync()
     {
+        if (isReplayView) return;
         if (WaferCount is < 1 or > 25) { Message = "웨이퍼 수는 1~25여야 함"; return; }
         if (!RecipeEditor.TryBuild(RecipeGroups.SelectMany(g => g.Fields), out var recipe, out var error)) { Message = "레시피 입력 오류: " + error; return; }
         if(recipe.ZLiftAfterMeasureUm<recipe.ZSafeHeightUm){Message="사이트 간 Z 높이는 안전 높이 이상이어야 함";return;}
@@ -228,11 +229,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         try { var result=await simulator.StartAsync(recipe, WaferCount, CancellationToken.None);replay.Record(simulator.Snapshot);RefreshSnapshot(simulator.Snapshot);Report(result); }
         finally { recordingRun=false; }
     }
-    [RelayCommand] private void Pause() => simulator.Pause();
-    [RelayCommand] private void Resume() => simulator.Resume();
-    [RelayCommand] private async Task AbortAsync() { await simulator.AbortAsync();replay.Record(simulator.Snapshot);RefreshSnapshot(simulator.Snapshot);Message = "중단 요청 완료"; }
-    [RelayCommand] private async Task ResetAsync() { var result=await simulator.ResetAsync();if(result.Ok){ExitReplay();replay.Clear();ReplayPosition=0;ReplayMaximum=1;}Report(result); }
-    [RelayCommand] private void Ack(string id) => simulator.AcknowledgeAlarm(id);
+    [RelayCommand] private void Pause() { if (!isReplayView) simulator.Pause(); }
+    [RelayCommand] private void Resume() { if (!isReplayView) simulator.Resume(); }
+    [RelayCommand] private async Task AbortAsync() { if (isReplayView) return; await simulator.AbortAsync();replay.Record(simulator.Snapshot);RefreshSnapshot(simulator.Snapshot);Message = "중단 요청 완료"; }
+    [RelayCommand] private async Task ResetAsync() { if (isReplayView) return; var result=await simulator.ResetAsync();if(result.Ok){ExitReplay();replay.Clear();ReplayPosition=0;ReplayMaximum=1;}Report(result); }
+    [RelayCommand] private void Ack(string id) { if (!isReplayView) simulator.AcknowledgeAlarm(id); }
     [RelayCommand] private async Task SaveRecipeAsync()
     {
         if (!RecipeEditor.TryBuild(RecipeGroups.SelectMany(g => g.Fields), out var recipe, out var error)) { Message = "레시피 입력 오류: " + error; return; }
@@ -272,6 +273,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void Report(DeviceResult result) => Message = result.Ok ? "명령 완료" : $"{result.Code}: {result.Message}";
     public void Dispose()
     {
+        comparisonCancel?.Cancel();
         if (disposed) return; disposed = true; logTimer.Stop(); logTimer.Tick -= LogTick; replayTimer.Stop();
         simulator.SnapshotChanged -= snapshotHandler; simulator.StepLogged -= stepHandler;
         simulator.WaferCompleted -= waferHandler; simulator.RunCompleted -= runHandler;

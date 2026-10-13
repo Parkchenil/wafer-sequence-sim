@@ -4,8 +4,10 @@ using Microsoft.Data.Sqlite;
 
 namespace Core.Measurement;
 
-public sealed class SqliteResultStore : IResultStore, IDisposable
+public sealed class SqliteResultStore : IResultStore, IRunFinalizer, IDisposable
 {
+    public bool InjectWriteFailure { get; set; }
+    private void CheckWrite() { if (InjectWriteFailure) throw new IOException("가상 SQLite 쓰기 실패 주입"); }
     private readonly SqliteConnection connection;
     private readonly SemaphoreSlim gate = new(1, 1);
 
@@ -42,15 +44,18 @@ public sealed class SqliteResultStore : IResultStore, IDisposable
         finally { gate.Release(); }
     }
 
-    public async Task SaveRunAsync(RunRecord run, CancellationToken ct)
+    public Task SaveRunAsync(RunRecord run, CancellationToken ct) => WriteRunAsync(run, ct, true);
+    public Task FinalizeRunAsync(RunRecord run, CancellationToken ct) => WriteRunAsync(run, ct, false);
+    private async Task WriteRunAsync(RunRecord run, CancellationToken ct, bool replaceChildren)
     {
+        CheckWrite();
         await gate.WaitAsync(ct);
         try
         {
             var db = await OpenAsync(ct);
             using var transaction = await db.BeginTransactionAsync(ct);
             // 같은 실행 ID를 저장하면 기존 자식 데이터까지 지우고 새 실행으로 덮어쓴다.
-            foreach (var table in new[] { "sites", "wafers", "log" })
+            if (replaceChildren) foreach (var table in new[] { "sites", "wafers", "log" })
             {
                 using var delete = db.CreateCommand();
                 delete.Transaction = (SqliteTransaction)transaction;
@@ -73,6 +78,7 @@ public sealed class SqliteResultStore : IResultStore, IDisposable
 
     public async Task SaveWaferAsync(string runId, WaferSummary wafer, CancellationToken ct)
     {
+        CheckWrite();
         await gate.WaitAsync(ct);
         try
         {
@@ -105,6 +111,7 @@ public sealed class SqliteResultStore : IResultStore, IDisposable
 
     public async Task SaveLogAsync(string runId, IReadOnlyList<StepEvent> log, CancellationToken ct)
     {
+        CheckWrite();
         await gate.WaitAsync(ct);
         try
         {

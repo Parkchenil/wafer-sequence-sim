@@ -78,6 +78,17 @@ public interface ILoadPort
     bool DoorOpen { get; }
 }
 
+public interface IRobotTransportSource
+{
+    RobotTransportTelemetry Transport { get; }
+    event Action<RobotTransportTelemetry>? TransportChanged;
+}
+
+public interface IRobotRecovery
+{
+    Task<DeviceResult> WithdrawAsync(TimeSpan moveTime, CancellationToken ct);
+}
+
 public interface IRobot
 {
     Task<DeviceResult> PickFromSlotAsync(int slot, TimeSpan moveTime, CancellationToken ct);

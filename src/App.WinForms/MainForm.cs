@@ -5,7 +5,7 @@ using Core.Measurement;
 
 namespace App.WinForms;
 
-public sealed class MainForm : Form
+public sealed partial class MainForm : Form
 {
     private readonly ISimulator _sim;
     private readonly RecipeEditModel _recipe = new();
@@ -74,6 +74,7 @@ public sealed class MainForm : Form
         BackColor = DashboardTheme.Background;
         MinimumSize = new Size(1280, 800);
         BuildLayout();
+        BuildControlInspector();
         DashboardTheme.Apply(this);
         _log.RetrieveVirtualItem += (_, e) => e.Item = LogItem(_events[_filteredIndexes[_filteredIndexes.Count - 1 - e.ItemIndex]]);
         _waitOnly.CheckedChanged += (_, _) => RefreshLog();
@@ -175,14 +176,14 @@ public sealed class MainForm : Form
         var sceneBox=new Panel { Dock=DockStyle.Fill };
         var sceneTools=new FlowLayoutPanel { Dock=DockStyle.Top,Height=31,WrapContents=false };
         void Tool(string text,Action action){var b=new Button { Text=text,AutoSize=true,Height=27 };b.Click+=(_,_)=>action();sceneTools.Controls.Add(b);}
-        Tool("기본 시점",()=>_scene3D.ResetCamera());Tool("측정부 확대",()=>{_scene3D.CloseUp=!_scene3D.CloseUp;_scene3D.Invalidate();});Tool("외장 숨김",()=>{_scene3D.Cutaway=!_scene3D.Cutaway;_scene3D.Invalidate();});
+        Tool("기본 시점",()=>_scene3D.ResetCamera());Tool("반송 확대",()=>_scene3D.TransportCamera());Tool("측정부 확대",()=>{_scene3D.ResetCamera();_scene3D.CloseUp=!_scene3D.CloseUp;_scene3D.Invalidate();});Tool("외장 숨김",()=>{_scene3D.Cutaway=!_scene3D.Cutaway;_scene3D.Invalidate();});
         Tool("2D/3D",()=>{_scene3D.Visible=!_scene3D.Visible;_schematic.Visible=!_scene3D.Visible;});
         Tool("확대 창",()=>{
             var view=new Equipment3DPanel { Dock=DockStyle.Fill };
             var window=new Form { Text="3D 개념 장비",ClientSize=new Size(1100,750) };
             var bar=new FlowLayoutPanel { Dock=DockStyle.Top,Height=32,WrapContents=false };
             void Add(string text,Action action){var button=new Button { Text=text,AutoSize=true };button.Click+=(_,_)=>action();bar.Controls.Add(button);}
-            Add("◀ 회전",()=>view.Rotate(-.15f,0));Add("회전 ▶",()=>view.Rotate(.15f,0));Add("확대 +",()=>view.Zoom(1.2f));Add("축소 −",()=>view.Zoom(.8f));Add("기본 시점",view.ResetCamera);
+            Add("◀ 회전",()=>view.Rotate(-.15f,0));Add("회전 ▶",()=>view.Rotate(.15f,0));Add("확대 +",()=>view.Zoom(1.2f));Add("축소 −",()=>view.Zoom(.8f));Add("기본 시점",view.ResetCamera);Add("반송 확대",view.TransportCamera);
             window.Controls.Add(view);window.Controls.Add(bar);DashboardTheme.Apply(window);
             var timer=new System.Windows.Forms.Timer { Interval=100 };timer.Tick+=(_,_)=>{view.Snapshot=_scene3D.Snapshot;view.ActiveStep=_scene3D.ActiveStep;view.RobotStep=_scene3D.RobotStep;view.WaferDiameterMm=_scene3D.WaferDiameterMm;view.RobotMoveTime=_scene3D.RobotMoveTime;view.Invalidate();};
             window.FormClosed+=(_,_)=>timer.Dispose();timer.Start();window.Show(this);
@@ -230,6 +231,7 @@ public sealed class MainForm : Form
         var alarmTab = new TabPage("알람"); var ack = new Button { Text = "선택 알람 확인", Dock = DockStyle.Bottom, Height = 30 };
         ack.Click += (_, _) => _ = RunUiTask(() =>
         {
+            if (_replayView) return Task.CompletedTask;
             foreach (ListViewItem item in _alarms.SelectedItems) if (item.Tag is string id) _sim.AcknowledgeAlarm(id);
             ApplySnapshot(_sim.Snapshot);
             return Task.CompletedTask;
@@ -444,16 +446,18 @@ public sealed class MainForm : Form
     }
     private void UpdateLiveButtons(EquipmentSnapshot live)
     {
-        if (_initializeButton is not null) _initializeButton.Enabled=live.State==EquipmentState.Uninitialized;
-        if (_startButton is not null) _startButton.Enabled=live.State is EquipmentState.Idle or EquipmentState.Completed;
-        if (_pauseButton is not null) _pauseButton.Enabled=live.State==EquipmentState.Running;
-        if (_resumeButton is not null) _resumeButton.Enabled=live.State==EquipmentState.Paused;
-        if (_abortButton is not null) _abortButton.Enabled=live.State is EquipmentState.Running or EquipmentState.Paused or EquipmentState.Aborting;
-        if (_resetButton is not null) _resetButton.Enabled=(live.State is EquipmentState.Alarm or EquipmentState.Idle or EquipmentState.Completed)&&!live.ActiveAlarms.Any(a=>a.Severity==AlarmSeverity.Error&&!a.Acked);
+        if (_initializeButton is not null) _initializeButton.Enabled=!_replayView && live.State==EquipmentState.Uninitialized;
+        if (_startButton is not null) _startButton.Enabled=!_replayView && live.State is EquipmentState.Idle or EquipmentState.Completed;
+        if (_pauseButton is not null) _pauseButton.Enabled=!_replayView && live.State==EquipmentState.Running;
+        if (_resumeButton is not null) _resumeButton.Enabled=!_replayView && live.State==EquipmentState.Paused;
+        if (_abortButton is not null) _abortButton.Enabled=!_replayView && live.State is EquipmentState.Running or EquipmentState.Paused or EquipmentState.Aborting;
+        if (_resetButton is not null) _resetButton.Enabled=!_replayView && (live.State is EquipmentState.Alarm or EquipmentState.Idle or EquipmentState.Completed)&&!live.ActiveAlarms.Any(a=>a.Severity==AlarmSeverity.Error&&!a.Acked);
     }
     private void ApplySnapshot(EquipmentSnapshot snapshot,bool historical=false)
     {
         if(_replayView && !historical){UpdateLiveButtons(_sim.Snapshot);return;}
+        _controlDetail.Text = ControlText.Inspector(snapshot, _replayView);
+        _faultButtons.Enabled = !_replayView;
         _scene3D.Snapshot=snapshot;_scene3D.WaferDiameterMm=_sim.CurrentRecipe?.WaferDiameterMm??_recipe.Recipe.WaferDiameterMm;_scene3D.RobotMoveTime=_sim.CurrentRecipe?.RobotMoveTime??_recipe.Recipe.RobotMoveTime;_scene3D.ActiveStep=_replay.ActiveEvent(snapshot.SimTime);_scene3D.RobotStep=_replay.ActiveEvent(snapshot.SimTime,ModuleId.Robot);
         _schematic.Snapshot = snapshot; _schematic.WaferDiameterMm = _sim.CurrentRecipe?.WaferDiameterMm ?? _recipe.Recipe.WaferDiameterMm; _map.WaferDiameterMm = _schematic.WaferDiameterMm; _gantt.Now = snapshot.SimTime; _map.Snapshot = snapshot; _stats.Totals = snapshot.Stats.PhaseTotals;
         _schematicDirty = _ganttDirty = _mapDirty = _statsDirty = true;
@@ -587,6 +591,7 @@ public sealed class MainForm : Form
     private void HandleFormClosing(object? sender, FormClosingEventArgs e)
     {
         if (_closing) return;
+        _experimentCancel?.Cancel();
         _closing = true;
         DetachEvents();
         if (_sim.Snapshot.State is EquipmentState.Running or EquipmentState.Paused or EquipmentState.Aborting)

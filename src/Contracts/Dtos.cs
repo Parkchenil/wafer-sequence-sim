@@ -71,10 +71,11 @@ public sealed record StepEvent(
     string Note)
 {
     public TimeSpan? Duration => End is { } e ? e - Start : null;
+    public bool IsDetail { get; init; }
 }
 
 public enum WaferLocation { LoadPort, RobotArm, Aligner, Chuck, Done }
-public enum WaferStatus { Pending, Processing, Measured, Saved, Failed }
+public enum WaferStatus { Pending, Processing, Measured, Saved, Failed, Journaled }
 
 /// <summary>웨이퍼 추적. 슬롯·현재 위치·처리 상태.</summary>
 public sealed record WaferTrack(string WaferId, int Slot, WaferLocation Location, WaferStatus Status, int SitesDone, int SitesTotal);
@@ -93,6 +94,7 @@ public enum AlarmCode
     ConfigError = 1006,          // 알 수 없는 IO 포인트 등 설정 오류
     ContactTimeout = 2001,
     ContactRetryExceeded = 2002,
+    QualityRejected = 2003,
     VacuumNotConfirmed = 3001,
     InterlockBlocked = 3002,
     VisionAlignFail = 4001,
@@ -170,6 +172,12 @@ public sealed record RecipeDto
     public double ContactRetryProbability { get; init; } = 0.05; // seed 기반. 재시도 발생 비율
     public int ContactMaxRetry { get; init; } = 2;
 
+    public bool QualityEnabled { get; init; } = false;
+    public double QualityTolerancePct { get; init; } = 1;
+    public int QualityMinSamples { get; init; } = 3;
+    public int QualityMaxRetry { get; init; } = 1;
+    public TimeSpan ProbeSettleTime { get; init; } = TimeSpan.FromMilliseconds(100);
+
     // 고정 대기(장비 설정에서 흔히 보이는 상수 대기)
     public TimeSpan VacuumCheckWait { get; init; } = TimeSpan.FromMilliseconds(800);
     public int VacuumCheckCount { get; init; } = 3;
@@ -241,7 +249,23 @@ public sealed record EquipmentSnapshot(
     IReadOnlyList<Alarm> ActiveAlarms,
     string? CurrentWaferId,
     int? CurrentSiteIndex,
-    IReadOnlyList<SitePoint> Sites);
+    IReadOnlyList<SitePoint> Sites)
+{
+    public RobotTransportTelemetry? RobotTransport { get; init; }
+    public InterlockSnapshot? Interlock { get; init; }
+    public ProbeSnapshot? ProbeDetail { get; init; }
+    public FaultSnapshot? Faults { get; init; }
+}
+
+public sealed record RobotTransportTelemetry(
+    double XMetres, double YMetres, double ZMetres,
+    double TargetXMetres, double TargetYMetres, double TargetZMetres,
+    string Subphase, int? Slot, double Progress, bool HoldingWafer, bool AlignerOccupied,
+    string? WaitingFor = null)
+{
+    public WaferLocation? HandoffLocation { get; init; }
+    public RobotZone Zone { get; init; } = RobotZone.Unknown;
+}
 
 /// <summary>2D 도식 애니메이션용 위치·상태.</summary>
 public sealed record MotionSnapshot(

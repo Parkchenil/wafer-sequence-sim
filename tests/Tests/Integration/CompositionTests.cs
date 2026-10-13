@@ -21,6 +21,52 @@ public sealed class CompositionTests
         return (clock, devices, store, engine);
     }
 
+    [Fact]
+    public async Task 선행픽업은_계측중인_웨이퍼의_소유권을_바꾸지_않는다()
+    {
+        var (_,devices,_,engine)=await BuildAsync(false);await using var disposal=devices;
+        using var stop=new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        Assert.True((await engine.InitializeAsync(stop.Token)).Ok);
+        EquipmentSnapshot? prefetch=null;
+        ((IRobotTransportSource)devices.Robot).TransportChanged+=s=>
+        {
+            if(s.Slot==2 && s.HandoffLocation==WaferLocation.RobotArm && engine.Snapshot.CurrentWaferId=="W001")prefetch=engine.Snapshot;
+        };
+        var recipe=ConceptPresets.ImprovementExample() with {Clock=ClockMode.Instant,Pattern=SitePattern.Center1,ReadingsPerSite=1,UnloadOverlap=true,RobotMoveTime=TimeSpan.Zero,VacuumCheckWait=TimeSpan.FromSeconds(10)};
+        var result=await engine.StartAsync(recipe,2,stop.Token);
+        Assert.True(result.Ok,result.Message);Assert.NotNull(prefetch);
+        Assert.Equal(WaferLocation.Chuck,prefetch!.Wafers.Single(w=>w.WaferId=="W001").Location);
+        Assert.Equal(WaferLocation.RobotArm,prefetch.Wafers.Single(w=>w.WaferId=="W002").Location);
+    }
+    [Fact]
+    public async Task 전로트_반송_소유권과_상세통계가_일치한다()
+    {
+        var (_,devices,_,engine)=await BuildAsync(false);
+        await using var disposal=devices;
+        using var stop=new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        Assert.True((await engine.InitializeAsync(stop.Token)).Ok);
+        var errors=new List<string>();var handoffs=0;
+        ((IRobotTransportSource)devices.Robot).TransportChanged+=state=>
+        {
+            var wafers=engine.Snapshot.Wafers;
+            if(wafers.Count(w=>w.Location==WaferLocation.RobotArm)>1)errors.Add("로봇 중복 소유");
+            if(state.HandoffLocation is { } location)
+            {
+                handoffs++;
+                var parent=engine.Log.LastOrDefault(e=>e.Module==ModuleId.Robot && !e.IsDetail && e.End is null);
+                // Log는 정렬된 뷰이므로 시간과 sequence로 현재 명령을 찾는다.
+                parent=engine.Log.Where(e=>e.Module==ModuleId.Robot && !e.IsDetail && e.End is null).MaxBy(e=>e.Seq);
+                if(parent is null || wafers.Single(w=>w.WaferId==parent.WaferId).Location!=location)errors.Add("인계 소유자 불일치");
+            }
+        };
+        var recipe=ConceptPresets.ImprovementExample() with {Clock=ClockMode.Instant,Pattern=SitePattern.Center1,ReadingsPerSite=1,UnloadOverlap=false};
+        var result=await engine.StartAsync(recipe,25,stop.Token);
+        Assert.True(result.Ok,result.Message);Assert.Empty(errors);Assert.Equal(150,handoffs);
+        Assert.Equal(25,engine.Snapshot.Stats.WafersDone);Assert.All(engine.Snapshot.Wafers,w=>Assert.Equal(WaferLocation.Done,w.Location));
+        Assert.Contains(engine.Log,e=>e.IsDetail);
+        foreach(var total in engine.Snapshot.Stats.PhaseTotals.Where(t=>t.Key is PhaseKind.PickFromSlot or PhaseKind.Align or PhaseKind.PlaceOnChuck or PhaseKind.PickFromChuck or PhaseKind.ReturnToSlot))
+            Assert.Equal(total.Value,TimeSpan.FromTicks(engine.Log.Where(e=>!e.IsDetail && e.End.HasValue && e.Phase==total.Key).Sum(e=>e.Duration!.Value.Ticks)));
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

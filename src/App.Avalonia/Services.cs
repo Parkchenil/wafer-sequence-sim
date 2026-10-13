@@ -40,13 +40,13 @@ internal static class Composition
         var devices = DeviceSetFactory.CreateWithProtocols(clock, field, FieldSeed);
 
         // 이력: 사용자 로컬 데이터 폴더의 SQLite 파일
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "wafer-sequence-sim");
+        var dir = Environment.GetEnvironmentVariable("WAFER_SIM_DATA") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "wafer-sequence-sim");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "runs.db");
         var store = new SqliteResultStore(dbPath);
         store.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-        var engine = new SequenceEngine(devices, new WaitHelper(clock), clock, new RsCalculator(), new SitePatternProvider(), store, new LogDigest());
+        var engine = new SequenceEngine(devices, new WaitHelper(clock), clock, new RsCalculator(), new SitePatternProvider(), new RecoverableResultStore(store, Path.Combine(dir, "recovery.jsonl")), new LogDigest());
         // 레시피 seed와 웨이퍼 ID는 엔진이 IDeviceContext로 직접 넘긴다(스냅샷 중계 없음)
         return (clock, devices, store, dbPath, engine);
     }

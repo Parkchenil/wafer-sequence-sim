@@ -5,7 +5,7 @@ namespace App.WinForms;
 
 public sealed class RecipeEditorPanel : Panel
 {
-    private static readonly string[] Groups = ["기본", "측정 위치", "전기 측정", "모션", "고정 대기", "핸들링", "저장", "시계"];
+    private static readonly string[] Groups = ["기본", "측정 위치", "전기 측정", "품질", "모션", "고정 대기", "핸들링", "저장", "시계"];
     private readonly RecipeEditModel _model;
     private readonly List<(PropertyDescriptor Property, Control Input)> _inputs = new();
 

@@ -73,6 +73,54 @@ public sealed class VirtualTimeProvider : TimeProvider
         return t;
     }
 
+    // 비교 실행은 단일 실행 큐를 먼저 비운 뒤 다음 가상 타이머를 발화한다.
+    // 스레드풀의 순간 작업 수를 시간 진행의 근거로 쓰지 않는다.
+    public bool IsDeterministic { get; private set; }
+    public T RunDeterministic<T>(Func<Task<T>> work)
+    {
+        if (Mode != ClockMode.Instant) throw new InvalidOperationException("결정적 실행은 Instant 모드 전용");
+        if (IsDeterministic) throw new InvalidOperationException("결정적 실행 중복");
+        var previous = SynchronizationContext.Current;
+        using var context = new SimulationContext();
+        IsDeterministic = true;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            var task = work();
+            while (!task.IsCompleted)
+            {
+                if (context.TryRun()) continue;
+                InstantTimer? timer = null;
+                lock (_gate)
+                {
+                    while (_queue.TryDequeue(out var entry, out var key))
+                    {
+                        if (entry.Timer.Disposed || entry.Gen != entry.Timer.Generation) continue;
+                        if (key.Due > _instantNow) _instantNow = key.Due;
+                        timer = entry.Timer; break;
+                    }
+                }
+                if (timer is not null)
+                {
+                    timer.Fire();
+                    if (timer.Period > TimeSpan.Zero && !timer.Disposed) Enqueue(timer, timer.Period);
+                }
+                else context.Wait();
+            }
+            return task.GetAwaiter().GetResult();
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(previous); IsDeterministic = false; }
+    }
+    private sealed class SimulationContext : SynchronizationContext, IDisposable
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<(SendOrPostCallback Callback, object? State)> work = new();
+        private readonly AutoResetEvent signal = new(false);
+        public override void Post(SendOrPostCallback callback, object? state) { work.Enqueue((callback,state)); signal.Set(); }
+        public bool TryRun() { if (!work.TryDequeue(out var item)) return false; item.Callback(item.State); return true; }
+        public void Wait() => signal.WaitOne(10);
+        public void Dispose() => signal.Dispose();
+    }
+
     // ───── Instant 모드 스케줄러 ─────
 
     private void Enqueue(InstantTimer t, TimeSpan dueTime)
@@ -82,6 +130,7 @@ public sealed class VirtualTimeProvider : TimeProvider
             var due = dueTime <= TimeSpan.Zero ? _instantNow : _instantNow + dueTime;
             _queue.Enqueue((t, t.Generation), (due, ++_timerSeq));
         }
+        if (IsDeterministic) return;
         if (Interlocked.CompareExchange(ref _pumpRunning, 1, 0) == 0)
             ThreadPool.UnsafeQueueUserWorkItem(_ => Pump(), null);
     }

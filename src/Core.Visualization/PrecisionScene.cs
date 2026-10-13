@@ -26,7 +26,7 @@ public sealed class PrecisionScene
         var stage=new Vector3(-(float)snapshot.Motion.StageXUm*1e-6f,0,(float)snapshot.Motion.StageYUm*1e-6f);
         var waferScale=(float)(waferDiameterMm/300);
         var blade=BladePoint(snapshot,robotStep,robotMoveTime??TimeSpan.FromSeconds(2.5));
-        var pivot=new Vector3(-.30f,.075f,-.18f);
+        var pivot=new Vector3(-.30f,blade.Y-.012f,-.18f);
         var radial=blade-pivot;radial.Y=0;
         radial=radial.LengthSquared()<1e-8f?Vector3.UnitX:Vector3.Normalize(radial);
         var wrist=blade-radial*.09f;
@@ -56,12 +56,12 @@ public sealed class PrecisionScene
                     Vector3? center=wafer.Location switch
                     {
                         WaferLocation.Chuck=>new Vector3(.35f,.1145f,0)+stage,
-                        WaferLocation.LoadPort or WaferLocation.Done when !closeUp=>new Vector3(-.69f,.0255f+(Math.Clamp(wafer.Slot,1,25)-1)*.006f,.28f),
-                        WaferLocation.Aligner when !closeUp=>new Vector3(-.12f,.111f,.34f),
-                        WaferLocation.RobotArm when !closeUp=>blade+new Vector3(0,.0075f,0),
+                        WaferLocation.LoadPort or WaferLocation.Done when !closeUp=>new Vector3(-.69f,(float)(RobotGeometry.SlotBottom(wafer.Slot)+RobotGeometry.WaferHalfThickness),.28f),
+                        WaferLocation.Aligner when !closeUp=>new Vector3(-.12f,(float)(RobotGeometry.AlignerBottom+RobotGeometry.WaferHalfThickness),.34f),
+                        WaferLocation.RobotArm when !closeUp=>blade+new Vector3(0,(float)(RobotGeometry.PadOffset+RobotGeometry.WaferHalfThickness),0),
                         _=>null
                     };
-                    if(center is { } target)Copy(part.Faces,Matrix4x4.CreateTranslation(-.35f,-.1145f,0)*Matrix4x4.CreateScale(waferScale)*Matrix4x4.CreateTranslation(target),"wafer:"+wafer.WaferId);
+                    if(center is { } target)Copy(part.Faces,Matrix4x4.CreateTranslation(-.35f,-.1145f,0)*Matrix4x4.CreateScale(waferScale,1,waferScale)*Matrix4x4.CreateTranslation(target),"wafer:"+wafer.WaferId);
                 }
                 continue;
             }
@@ -72,13 +72,25 @@ public sealed class PrecisionScene
                 var angle=(float)(snapshot.Motion.AlignerAngleDeg*Math.PI/180);
                 Copy(part.Faces,Matrix4x4.CreateTranslation(.12f,-.101f,-.34f)*Matrix4x4.CreateRotationY(angle)*Matrix4x4.CreateTranslation(-.12f,.101f,.34f),name);continue;
             }
+            if(name.StartsWith("CARRIAGE_",StringComparison.Ordinal))
+            {
+                if(!closeUp)Copy(part.Faces,Matrix4x4.CreateTranslation(0,blade.Y-.13f,0),name);
+                continue;
+            }
+            if(name.StartsWith("JOINT_",StringComparison.Ordinal))
+            {
+                var origin=new Vector3(part.World.M41,part.World.M42,part.World.M43);
+                var target=name.Contains("elbow")?new Vector3(elbow.X,blade.Y-.009f,elbow.Z):new Vector3(wrist.X,blade.Y-.003f,wrist.Z);
+                if(!closeUp)Copy(part.Faces,Matrix4x4.CreateTranslation(target-origin),name);
+                continue;
+            }
             if(name.StartsWith("ROBOT_",StringComparison.Ordinal))
             {
                 if(closeUp)continue;
                 var upper=name.StartsWith("ROBOT_upper",StringComparison.Ordinal);
                 var lower=name.StartsWith("ROBOT_lower",StringComparison.Ordinal);
-                var lowerElbow=new Vector3(elbow.X,.09f,elbow.Z);
-                var lowerWrist=new Vector3(wrist.X,.09f,wrist.Z);
+                var lowerElbow=new Vector3(elbow.X,blade.Y-.006f,elbow.Z);
+                var lowerWrist=new Vector3(wrist.X,blade.Y-.006f,wrist.Z);
                 var start=upper?pivot:lower?lowerElbow:wrist;
                 var end=upper?elbow:lower?lowerWrist:wrist+radial*.18f;
                 var origin=new Vector3(part.World.M41,part.World.M42,part.World.M43);
@@ -93,18 +105,15 @@ public sealed class PrecisionScene
         return output;
         void Copy(Face3D[] source,Matrix4x4 transform,string name)
         {
-            foreach(var face in source)output.Add(face with {Transform=transform,Part=name});
+            var active=snapshot.Motion.RobotExtended && (name.StartsWith("ROBOT_") || name.StartsWith("CARRIAGE_"));
+            foreach(var face in source)output.Add(face with {Transform=transform,Part=name,Color=active?new Rgb(50,174,192):face.Color,LinearColor=active?false:face.LinearColor});
         }
     }
     public static Vector3 BladePoint(EquipmentSnapshot snapshot,StepEvent? step,TimeSpan duration)
     {
-        var home=new Vector3(-.30f,.13f,.03f);
-        if(step is null||step.Module!=ModuleId.Robot)return home;
-        var cassette=new Vector3(-.69f,.13f,.28f);var aligner=new Vector3(-.12f,.13f,.34f);var chuck=new Vector3(.35f,.13f,0);
-        var from=step.Phase switch{PhaseKind.PlaceOnChuck=>aligner,PhaseKind.ReturnToSlot=>chuck,PhaseKind.Align when step.Note.Contains("놓기")=>cassette,_=>home};
-        var to=step.Phase switch{PhaseKind.PickFromSlot or PhaseKind.ReturnToSlot=>cassette,PhaseKind.Align=>aligner,PhaseKind.PlaceOnChuck or PhaseKind.PickFromChuck=>chuck,_=>from};
-        var t=(float)Math.Clamp((snapshot.SimTime-step.Start).TotalSeconds/Math.Max(.001,duration.TotalSeconds),0,1);t=t*t*(3-2*t);
-        return Vector3.Lerp(from,to,t);
+        if(snapshot.RobotTransport is { } actual)return new Vector3((float)actual.XMetres,(float)actual.YMetres,(float)actual.ZMetres);
+        // 구형 장치 stub에는 확정된 대기 자세만 제공한다. 로그 시각으로 경로를 발명하지 않는다.
+        return new Vector3(-.30f,.13f,.03f);
     }
     private static Matrix4x4 RotationFromX(Vector3 direction)
     {

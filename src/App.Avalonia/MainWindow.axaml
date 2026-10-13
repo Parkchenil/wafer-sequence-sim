@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:App.Avalonia" xmlns:c="using:Contracts" xmlns:conv="using:Avalonia.Data.Converters" x:Class="App.Avalonia.MainWindow" x:DataType="local:MainViewModel" Width="1600" Height="950" MinWidth="1280" MinHeight="800" Title="Wafer Sequence Simulator" Background="{DynamicResource BackgroundBrush}">
   <Window.Styles>
+    <Style Selector="TabItem"><Setter Property="Padding" Value="6,8"/><Setter Property="FontSize" Value="11"/></Style>
     <Style Selector="Border.card">
       <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}"/>
@@ -41,6 +42,8 @@
         <Button Width="40" Height="38" ToolTip.Tip="통계" AutomationProperties.Name="통계" Click="ShowStatistics"><PathIcon Width="17" Height="17" Data="M3,20 H21 V22 H3 Z M4,11 H8 V18 H4 Z M10,3 H14 V18 H10 Z M16,7 H20 V18 H16 Z"/></Button>
         <Button Width="40" Height="38" ToolTip.Tip="알람" AutomationProperties.Name="알람" Click="ShowAlarms"><PathIcon Width="17" Height="17" Data="M12,3 L22,21 H2 Z M12,8 V14 M12,17 V18"/></Button>
         <Button Width="40" Height="38" ToolTip.Tip="장치" AutomationProperties.Name="장치" Click="ShowDevices"><PathIcon Width="17" Height="17" Data="M4,3 H20 V9 H4 Z M4,12 H20 V18 H4 Z M7,20 H17 V22 H7 Z"/></Button>
+        <Button Width="40" Height="38" Content="제어" ToolTip.Tip="제어 · 장애 연습" Click="ShowControl"/>
+        <Button Width="40" Height="38" Content="A/B" AutomationProperties.Name="실험 열기" ToolTip.Tip="레시피 실험" Click="ShowExperiment"/>
       </StackPanel>
     </Border>
     <Grid Grid.Column="1" RowDefinitions="48,76,*,252" RowSpacing="8" Margin="10,10,10,26">
@@ -115,6 +118,7 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
               <Button Content="기본 시점" Click="Reset3D"/>
               <Button Content="측정부 확대" Click="Close3D"/>
+              <Button Content="반송 확대" Click="Transport3D"/>
               <Button Content="외장 숨김" Click="Cut3D"/>
               <Button Content="확대 창" Click="Open3D"/>
               <Button Content="2D" Click="Toggle2D"/>
@@ -284,6 +288,25 @@
             </TabItem>
 
 
+            <TabItem Header="제어">
+              <ScrollViewer><StackPanel Spacing="8" Margin="5">
+                <TextBlock Text="가상 장애 주입 · 실시간에서만 조작" FontWeight="Bold" TextWrapping="Wrap"/>
+                <WrapPanel IsEnabled="{Binding !IsReplayView}">
+                  <Button Content="통신 단절" Command="{Binding CommunicationOnCommand}"/><Button Content="통신 복원" Command="{Binding CommunicationOffCommand}"/>
+                  <Button Content="센서 지연" Command="{Binding SensorOnCommand}"/><Button Content="센서 정상" Command="{Binding SensorOffCommand}"/>
+                  <Button Content="안전 회수" Command="{Binding SafeRecoverCommand}"/><Button Content="회수 중단" Command="{Binding CancelRecoveryCommand}"/>
+                  <Button Content="DB 실패" Command="{Binding DatabaseOnCommand}"/><Button Content="DB 복구" Command="{Binding DatabaseOffCommand}"/>
+                </WrapPanel>
+                <TextBlock Text="{Binding ControlDetail}" TextWrapping="Wrap"/>
+              </StackPanel></ScrollViewer>
+            </TabItem>
+            <TabItem Header="실험">
+              <ScrollViewer><StackPanel Spacing="8" Margin="5">
+                <TextBlock Text="레시피 A/B 비교 · 현재 로트 유지" FontWeight="Bold" TextWrapping="Wrap"/>
+                <WrapPanel><Button Content="기준 캡처" Command="{Binding CaptureBaselineCommand}"/><Button Content="비교 실행" Command="{Binding RunExperimentCommand}"/><Button Content="비교 취소" Command="{Binding CancelExperimentCommand}"/></WrapPanel>
+                <TextBlock Text="{Binding ExperimentText}" TextWrapping="Wrap"/>
+              </StackPanel></ScrollViewer>
+            </TabItem>
           </TabControl>
         </Border>
       </Grid>

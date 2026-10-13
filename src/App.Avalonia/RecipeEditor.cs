@@ -25,7 +25,7 @@ public static class RecipeEditor
     [
         ("기본", ["SchemaVersion", "Name", "Seed"]),
         ("측정 위치", ["Pattern", "CustomSites", "WaferDiameterMm", "EdgeExclusionMm"]),
-        ("전기 측정", ["ReadingsPerSite", "ReadingTime", "SourceCurrentA"]),
+        ("전기 측정", ["ReadingsPerSite", "ReadingTime", "SourceCurrentA", "QualityEnabled", "QualityTolerancePct", "QualityMinSamples", "QualityMaxRetry", "ProbeSettleTime"]),
         ("모션", ["TravelSpeedMmPerS", "AccelMmPerS2", "ZMode", "ZApproachSpeedMmPerS", "ZStepUm", "ZSafeHeightUm", "ZLiftAfterMeasureUm", "ContactDetectTimeout", "ContactRetryProbability", "ContactMaxRetry"]),
         ("고정 대기", ["VacuumCheckWait", "VacuumCheckCount", "IlluminationWait", "AutoFocusWait", "MapInspect", "MapInspectTime"]),
         ("핸들링", ["UnloadOverlap", "RobotMoveTime", "AlignTime"]),
@@ -99,6 +99,7 @@ public static class RecipeEditor
             ?? Invalid(nameof(recipe.CustomSites), recipe.Pattern == SitePattern.Custom && recipe.CustomSites.Count == 0)
             ?? Invalid(nameof(recipe.CustomSites), checkedRecipe.CustomSites.Any(s => Math.Sqrt(s.XUm * s.XUm + s.YUm * s.YUm) > (checkedRecipe.WaferDiameterMm / 2 - checkedRecipe.EdgeExclusionMm) * 1000))
             ?? "";
+        if (error.Length == 0) error = ControlValidation.Validate(recipe) ?? "";
         return error.Length == 0;
     }
 }

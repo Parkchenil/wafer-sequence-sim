@@ -55,23 +55,44 @@ public sealed class WaferTracker
     { lock (_gate) { var i = _items.FindIndex(x => x.WaferId == id); if (i >= 0) { var w = _items[i]; _items[i] = w with { Location = location ?? w.Location, Status = status ?? w.Status, SitesDone = sitesDone ?? w.SitesDone }; } } }
 }
 
-public sealed class Interlock(IDeviceSet devices, Func<bool> vacuumConfirmed, Func<double> safeHeight, Func<DeviceResult> emo, Func<bool> stageMoving) : IInterlock
+public sealed class Interlock(IDeviceSet devices, Func<bool> vacuumConfirmed, Func<double> safeHeight, Func<DeviceResult> emo, Func<bool> stageMoving, Func<bool>? chuckOwned = null) : IInterlock
 {
-    private static DeviceResult Block(string reason) => DeviceResult.Fail(AlarmCode.InterlockBlocked, reason);
-    public DeviceResult CheckMoveXY() { var safety = emo(); return !safety.Ok ? safety : devices.ZAxis.PositionUm < safeHeight() ? Block("Z 안전 높이 미달") : !vacuumConfirmed() ? Block("진공 미확인") : devices.Robot.Extended ? Block("로봇 진입") : DeviceResult.Success; }
-    public DeviceResult CheckDescendZ() { var safety = emo(); return !safety.Ok ? safety : !vacuumConfirmed() ? Block("진공 미확인") : !StageStopped() ? Block("XY 이동 중") : DeviceResult.Success; }
-    public DeviceResult CheckRobotAccess() { var safety = emo(); return !safety.Ok ? safety : devices.ZAxis.PositionUm < safeHeight() ? Block("Z 안전 높이 미달") : Math.Abs(devices.StageX.PositionUm) > 0.01 || Math.Abs(devices.StageY.PositionUm) > 0.01 ? Block("스테이지 원점 아님") : DeviceResult.Success; }
-    public DeviceResult CheckVacuumOff() { var safety = emo(); return !safety.Ok ? safety : devices.ZAxis.PositionUm < safeHeight() ? Block("Z 안전 높이 미달") : DeviceResult.Success; }
-    private bool StageStopped() => !stageMoving();
+    public IReadOnlyList<InterlockCondition> LastConditions { get; private set; } = [];
+    private DeviceResult Evaluate(PhaseKind phase)
+    {
+        var safety = emo();
+        var zone = (devices.Robot as IRobotTransportSource)?.Transport.Zone ?? RobotZone.Unknown;
+        var conditions = new List<InterlockCondition> { new("EMO", safety.Ok ? "해제 확인" : safety.Message, "해제 확인", safety.Ok) };
+        if (phase != PhaseKind.DescendZ) conditions.Add(new("Z 안전 높이", $"{devices.ZAxis.PositionUm:F1} µm", $"≥ {safeHeight():F1} µm", double.IsFinite(devices.ZAxis.PositionUm) && devices.ZAxis.PositionUm >= safeHeight()));
+        if (phase is PhaseKind.MoveXY or PhaseKind.DescendZ)
+        {
+            conditions.Add(new("진공", vacuumConfirmed() ? "확인" : "미확인", "확인", vacuumConfirmed()));
+            conditions.Add(new("반송 영역", zone.ToString(), "수납 또는 분리 반송 영역", !devices.Robot.Extended || zone == RobotZone.IsolatedTransfer));
+        }
+        if (phase is PhaseKind.DescendZ or PhaseKind.PlaceOnChuck) conditions.Add(new("XY", stageMoving() ? "이동" : "정지", "정지", !stageMoving()));
+        if (phase == PhaseKind.PlaceOnChuck)
+        {
+            conditions.Add(new("척 원점", $"X {devices.StageX.PositionUm:F1}, Y {devices.StageY.PositionUm:F1} µm", "X/Y 원점", Math.Abs(devices.StageX.PositionUm) <= .01 && Math.Abs(devices.StageY.PositionUm) <= .01));
+            conditions.Add(new("척 자원", (chuckOwned?.Invoke() ?? true) ? "잠금 소유" : "미소유", "잠금 소유", chuckOwned?.Invoke() ?? true));
+        }
+        LastConditions = conditions.AsReadOnly();
+        var failed = conditions.FirstOrDefault(c => !c.Passed);
+        return !safety.Ok ? safety : failed is null ? DeviceResult.Success : DeviceResult.Fail(AlarmCode.InterlockBlocked, failed.Name + " 조건 미충족");
+    }
+    public DeviceResult CheckMoveXY() => Evaluate(PhaseKind.MoveXY);
+    public DeviceResult CheckDescendZ() => Evaluate(PhaseKind.DescendZ);
+    public DeviceResult CheckRobotAccess() => Evaluate(PhaseKind.PlaceOnChuck);
+    public DeviceResult CheckVacuumOff() => Evaluate(PhaseKind.VacuumCheck);
 }
 
-public sealed class SequenceEngine : ISimulator
+public sealed partial class SequenceEngine : ISimulator
 {
     private readonly IDeviceSet _d; private readonly IWaitHelper _wait; private readonly VirtualTimeProvider _clock; private readonly IRsCalculator _rs; private readonly ISitePatternProvider _sites; private readonly IResultStore? _store; private readonly ILogDigest? _digest;
     private readonly ModuleMachine[] _modules = [new LoadPortModule(), new RobotModule(), new AlignerModule(), new StageModule(), new ZHeadModule(), new SmuModule(), new VisionModule(), new VacuumModule(), new StorageModule(), new HostModule()];
     // 화면 알림 제한과 이력 시작 시각만 벽시계를 사용한다.
     private readonly TimeProvider _wall = TimeProvider.System; private readonly object _publishGate = new(); private long _lastWallSnapshot; private ITimer? _snapshotTimer;
     private readonly WaferTracker _tracker = new(); private readonly List<StepEvent> _log = []; private readonly List<Alarm> _alarms = []; private readonly List<WaferSummary> _summaries = []; private readonly object _gate = new();
+    private TimeSpan? _runEndedAt;
     private readonly Dictionary<PhaseKind, TimeSpan> _phaseTotals = []; private readonly object _controlGate = new(); private readonly SemaphoreSlim _emoPulse = new(0);
     private readonly ConcurrentDictionary<string, WaferSummary> _pendingSaves = new();
     private readonly Dictionary<string, (TimeSpan Start, TimeSpan End)> _saveSchedule = []; private TimeSpan _saveAvailableAt;
@@ -80,12 +101,31 @@ public sealed class SequenceEngine : ISimulator
     private IReadOnlyList<int> _slots = [];
     private RecipeDto? _recipe; private IReadOnlyList<SitePoint> _points = []; private Random _random = new(1); private bool _pause, _aborting, _completed, _vacuumOn, _vacuumConfirmed, _lampOn; private string? _currentWafer; private int? _currentSite; private long _seq, _alarmSeq; private bool _chuckHeld; private int _stageMoving, _queueDepth, _queueCapacity, _starting, _initializing, _emoAlarmRaised; private string _runId = ""; private DateTimeOffset _startedAtWall; private DeviceResult _emoCheck = DeviceResult.Fail(AlarmCode.ConfigError, "EMO 상태 미확인");
     public SequenceEngine(IDeviceSet devices, IWaitHelper wait, VirtualTimeProvider clock, IRsCalculator rs, ISitePatternProvider sites, IResultStore? store, ILogDigest? digest)
-    { _d = devices; _wait = wait; _clock = clock; _rs = rs; _sites = sites; _store = store; _digest = digest; Interlock = new Interlock(devices, () => _vacuumConfirmed, () => _recipe?.ZSafeHeightUm ?? 300, () => Volatile.Read(ref _emoCheck), () => Volatile.Read(ref _stageMoving) != 0); }
+    { _d = devices; _wait = wait; _clock = clock; _rs = rs; _sites = sites; _store = store; _digest = digest; Interlock = new Interlock(devices, () => _vacuumConfirmed, () => _recipe?.ZSafeHeightUm ?? 300, () => Volatile.Read(ref _emoCheck), () => Volatile.Read(ref _stageMoving) != 0, () => _chuckHeld); if (devices.Robot is IRobotTransportSource source) source.TransportChanged += OnRobotTransport; }
     public IInterlock Interlock { get; }
     public RecipeDto? CurrentRecipe => _recipe;
     public IReadOnlyList<StepEvent> Log { get { lock (_gate) return _log.OrderBy(x => x.Start).ThenBy(x => x.WaferId).ThenBy(x => x.SiteIndex ?? -1).ThenBy(x => x.Module).ThenBy(x => x.Phase).ThenBy(x => x.Note).ThenBy(x => x.End.HasValue).ToArray(); } }
     public EquipmentSnapshot Snapshot => BuildSnapshot();
     public event Action<EquipmentSnapshot>? SnapshotChanged; public event Action<StepEvent>? StepLogged; public event Action<Alarm>? AlarmRaised; public event Action<Alarm>? AlarmCleared; public event Action<MeasurementResult>? MeasurementCompleted; public event Action<WaferSummary>? WaferCompleted; public event Action<RunRecord>? RunCompleted;
+    private string? _lastRobotSubphase;
+    private void OnRobotTransport(RobotTransportTelemetry state)
+    {
+        StepEvent? parent; lock (_gate) parent = _log.LastOrDefault(e => e.Module == ModuleId.Robot && e.End is null);
+        if (state.Subphase != _lastRobotSubphase)
+        {
+            _lastRobotSubphase = state.Subphase;
+            if (parent is not null)
+            {
+                var detail = new StepEvent(Interlocked.Increment(ref _seq), parent.WaferId, null, ModuleId.Robot, parent.Phase, _clock.Elapsed, _clock.Elapsed, false, null, state.Subphase) { IsDetail = true };
+                lock (_gate) _log.Add(detail);
+                try { StepLogged?.Invoke(detail); } catch { }
+            }
+        }
+        // 계측 중인 웨이퍼와 선행 반송 웨이퍼는 다를 수 있다. 활성 로봇 단계가 소유자다.
+        if (parent?.WaferId is { } id && state.HandoffLocation is { } location)
+            _tracker.Update(id, location, Volatile.Read(ref _recovering) == 0 ? WaferStatus.Processing : null);
+        Publish();
+    }
     private ModuleMachine M(ModuleId id) => _modules[(int)id];
     private EquipmentState State { get { lock (_gate) return _alarms.Any(a => a.ClearedAt is null && a.Severity == AlarmSeverity.Error) ? EquipmentState.Alarm : _aborting ? EquipmentState.Aborting : _pause && _runCts is not null ? EquipmentState.Paused : _runCts is not null ? EquipmentState.Running : _modules.Any(m => m.State == ModuleState.Homing) ? EquipmentState.Initializing : _modules.Any(m => m.State == ModuleState.Uninitialized) ? EquipmentState.Uninitialized : _completed ? EquipmentState.Completed : EquipmentState.Idle; } }
     /// <summary>대기로 분류된 시간(IsWait=true인 완료 단계의 합). 고정 대기·큐 대기·인터락 대기가 전부 들어간다.</summary>
@@ -95,10 +135,10 @@ public sealed class SequenceEngine : ISimulator
         lock (_gate)
         {
             var totals = new Dictionary<PhaseKind, TimeSpan>(_phaseTotals);
-            var elapsed = _clock.Elapsed; var avg = _summaries.Count == 0 ? (TimeSpan?)null : TimeSpan.FromTicks((long)_summaries.Average(x => x.Tact.Ticks));
+            var elapsed = _runEndedAt ?? _clock.Elapsed; var avg = _summaries.Count == 0 ? (TimeSpan?)null : TimeSpan.FromTicks((long)_summaries.Average(x => x.Tact.Ticks));
             var stats = new RunStats(_summaries.Count, _tracker.Items.Count, elapsed, avg, avg is { Ticks: > 0 } ? 3600d / avg.Value.TotalSeconds : null, totals, elapsed.Ticks == 0 ? 0 : (double)WaitTicks() / elapsed.Ticks, Math.Clamp(Volatile.Read(ref _queueDepth), 0, _queueCapacity), _queueCapacity);
             var motion = new MotionSnapshot(_d.StageX.PositionUm, _d.StageY.PositionUm, _d.ZAxis.PositionUm, _d.Probe.InContact, _vacuumOn, _vacuumConfirmed, _lampOn, _d.Vision.Focused, _d.Robot.Extended, _d.LoadPort.DoorOpen, _d.Aligner.AngleDeg);
-            return new(elapsed, State, _modules.Select(x => x.Status).ToArray(), _tracker.Items, motion, stats, _alarms.Where(x => x.ClearedAt is null).ToArray(), _currentWafer, _currentSite, _points);
+            return new(elapsed, State, _modules.Select(x => x.Status).ToArray(), _tracker.Items, motion, stats, _alarms.Where(x => x.ClearedAt is null).ToArray(), _currentWafer, _currentSite, _points) { RobotTransport = (_d.Robot as IRobotTransportSource)?.Transport, Interlock = _interlockDetail, ProbeDetail = _probeDetail is { } p ? p with { HeightUm = _d.ZAxis.PositionUm, TrueContact = _d.Probe.InContact } : null, Faults = FaultState() };
         }
     }
     private void Publish()
@@ -120,9 +160,21 @@ public sealed class SequenceEngine : ISimulator
     private async Task<DeviceResult> Step(string wafer, int? site, ModuleId module, PhaseKind phase, Func<CancellationToken, Task<DeviceResult>> action, CancellationToken ct, bool wait = false, string? reason = null, string note = "", bool retryable = false, TimeSpan? startOverride = null, TimeSpan? endOverride = null)
     {
         await PauseGate(ct); ct.ThrowIfCancellationRequested();
+        if (module != ModuleId.Storage)
+        {
+            var communication = await CommunicationGate(phase.ToString(), ct);
+            if (!communication.Ok) { Raise(communication.Code, module, communication.Message); return communication; }
+        }
+        await PauseGate(ct);
         var emo = module == ModuleId.Storage ? DeviceResult.Success : await RefreshEmoAsync(ct);
         var vacuum = emo.Ok && _vacuumConfirmed && (module == ModuleId.Stage && phase == PhaseKind.MoveXY || module == ModuleId.ZHead && phase == PhaseKind.DescendZ) ? await RefreshVacuumAsync(ct) : DeviceResult.Success;
-        var gate = !emo.Ok ? emo : !vacuum.Ok ? vacuum : CommandGate(module, phase, note);
+        DeviceResult gate;
+        lock (Interlock)
+        {
+            var command = CommandGate(module, phase, note);
+            gate = !emo.Ok ? emo : !vacuum.Ok ? vacuum : command;
+            ObserveGate(phase, gate);
+        }
         if (!gate.Ok) { Raise(gate.Code, module, gate.Message); await SafeState(); return gate; }
         var start = startOverride ?? _clock.Elapsed; var seq = Interlocked.Increment(ref _seq); var first = new StepEvent(seq, wafer, site, module, phase, start, null, wait, reason, note);
         lock (_gate) { _log.Add(first); M(module).Enter(wait, phase.ToString(), start); }
@@ -223,7 +275,7 @@ public sealed class SequenceEngine : ISimulator
             await SafeCall(() => _d.ZAxis.StopAsync(CancellationToken.None), ModuleId.ZHead);
             await SafeCall(() => _d.StageX.StopAsync(CancellationToken.None), ModuleId.Stage);
             await SafeCall(() => _d.StageY.StopAsync(CancellationToken.None), ModuleId.Stage);
-            if (_recipe is { } r) await SafeCall(() => _d.ZAxis.MoveAbsoluteAsync(r.ZSafeHeightUm, r.TravelSpeedMmPerS, r.AccelMmPerS2, TimeSpan.FromSeconds(30), CancellationToken.None), ModuleId.ZHead);
+            if (!_communicationLost && !_needsReconcile && _recipe is { } r) await SafeCall(() => _d.ZAxis.MoveAbsoluteAsync(r.ZSafeHeightUm, r.TravelSpeedMmPerS, r.AccelMmPerS2, TimeSpan.FromSeconds(30), CancellationToken.None), ModuleId.ZHead);
         }
         finally
         {
@@ -245,8 +297,13 @@ public sealed class SequenceEngine : ISimulator
     /// <summary>UI 스레드의 동기화 컨텍스트를 타지 않도록 본체는 스레드풀에서 돈다(화면 스레드 점유·데드락 방지).</summary>
     public Task<DeviceResult> InitializeAsync(CancellationToken ct)
     {
-        if (Interlocked.CompareExchange(ref _initializing, 1, 0) != 0) return Task.FromResult(DeviceResult.Fail(AlarmCode.InterlockBlocked, "초기화 진행 중"));
-        return Task.Run(async () => { try { return await InitializeCoreAsync(ct); } finally { Volatile.Write(ref _initializing, 0); } }, CancellationToken.None);
+        lock (_controlGate)
+        {
+            if (_recovering != 0 || _initializing != 0) return Task.FromResult(DeviceResult.Fail(AlarmCode.InterlockBlocked, "안전 회수 또는 초기화 진행 중"));
+            _initializing = 1;
+        }
+        async Task<DeviceResult> Invoke() { try { return await InitializeCoreAsync(ct); } finally { Volatile.Write(ref _initializing, 0); } }
+        return _clock.IsDeterministic ? Invoke() : Task.Run(Invoke, CancellationToken.None);
     }
     private async Task<DeviceResult> InitializeCoreAsync(CancellationToken ct)
     {
@@ -262,15 +319,32 @@ public sealed class SequenceEngine : ISimulator
     }
     public Task<DeviceResult> StartAsync(RecipeDto recipe, int waferCount, CancellationToken ct)
     {
-        if (Interlocked.CompareExchange(ref _starting, 1, 0) != 0) return Task.FromResult(DeviceResult.Fail(AlarmCode.InterlockBlocked, "실행 진행 중"));
-        return Task.Run(async () => { try { return await StartCoreAsync(recipe, waferCount, ct); } finally { Volatile.Write(ref _starting, 0); } }, CancellationToken.None);
+        lock (_controlGate)
+        {
+            if (_recovering != 0 || _starting != 0) return Task.FromResult(DeviceResult.Fail(AlarmCode.InterlockBlocked, "안전 회수 또는 실행 진행 중"));
+            _starting = 1;
+        }
+        async Task<DeviceResult> Invoke() { try { return await StartCoreAsync(recipe, waferCount, ct); } finally { Volatile.Write(ref _starting, 0); } }
+        return _clock.IsDeterministic ? Invoke() : Task.Run(Invoke, CancellationToken.None);
     }
     private async Task<DeviceResult> StartCoreAsync(RecipeDto recipe, int waferCount, CancellationToken ct)
     {
         if (State != EquipmentState.Idle && State != EquipmentState.Completed) return DeviceResult.Fail(AlarmCode.InterlockBlocked, "시작 상태가 아님");
         if (waferCount < 1 || recipe.ReadingsPerSite < 1 || recipe.SaveQueueCapacity < 1 || recipe.ZLiftAfterMeasureUm < recipe.ZSafeHeightUm) return DeviceResult.Fail(AlarmCode.ConfigError, "레시피 값 오류: 사이트 간 Z 높이는 안전 높이 이상이어야 함");
+        if (StorageRecovery is { JournalBlocked: true } blocked) return DeviceResult.Fail(AlarmCode.SaveWriteFail, blocked.JournalStatus);
+        if (ControlValidation.Validate(recipe) is { } invalid) return DeviceResult.Fail(AlarmCode.ConfigError, invalid);
+        try
+        {
+            var present = await _d.Io.ReadAsync(IoPoints.ChuckWaferPresent, ct);
+            if (!present.Ok) return DeviceResult.Fail(present.Code, "로트 시작 전 척 재석 미확인: " + present.Message);
+            if (present.Value || _d.Robot.HoldingWafer || _d.Robot.Extended || (_d.Robot as IRobotTransportSource)?.Transport.AlignerOccupied == true)
+                return DeviceResult.Fail(AlarmCode.InterlockBlocked, "미회수 웨이퍼 또는 미수납 로봇이 있음 · 새 로트로 덮어쓸 수 없음");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception e) { return DeviceResult.Fail(AlarmCode.ConfigError, "재석 확인 실패: " + e.Message); }
+        _probeDetail = null; _interlockDetail = null;
         _clock.Configure(recipe.Clock, recipe.TimeScale); _recipe = recipe; _random = new Random(recipe.Seed);
-        lock (_gate) { _summaries.Clear(); _log.Clear(); _phaseTotals.Clear(); }
+        lock (_gate) { _runEndedAt = null; _summaries.Clear(); _log.Clear(); _phaseTotals.Clear(); }
         _pendingSaves.Clear(); lock (_gate) { _saveSchedule.Clear(); _saveAvailableAt = TimeSpan.Zero; } _seq = 0; _queueDepth = 0; _completed = false; _emoAlarmRaised = 0; _queueCapacity = recipe.SaveQueueCapacity;
         _startedAtWall = _wall.GetUtcNow(); var suffix = Guid.NewGuid().ToString("N")[..8]; _runId = $"{_startedAtWall:yyyyMMdd-HHmmss}-{recipe.Seed}-{waferCount}-{suffix}";
         lock (_controlGate) { _pause = false; _resume.TrySetResult(); if (_chuckHeld) { _chuckHeld = false; _chuck.Release(); } }
@@ -282,11 +356,12 @@ public sealed class SequenceEngine : ISimulator
             _points = _sites.Build(recipe); _tracker.Reset(waferCount, _points.Count);
             var initialEmo = await RefreshEmoAsync(token);
             if (!initialEmo.Ok) { Raise(initialEmo.Code, ModuleId.Host, initialEmo.Message); await SafeState(); return initialEmo; }
-            emoWatcher = Task.Run(() => WatchEmo(monitorCts.Token), CancellationToken.None);
+            emoWatcher = _clock.IsDeterministic ? WatchEmo(monitorCts.Token) : Task.Run(() => WatchEmo(monitorCts.Token), CancellationToken.None);
             if (_store is not null) { var init = await Persist(() => _store.InitializeAsync(token)); if (!init.Ok) return init; }
             // 준비: 홈 위치(Z=0)는 접촉 높이이므로 로봇이 들어오기 전에 Z를 안전 높이로 올린다(인터락 전제)
             if (_d.ZAxis.PositionUm < recipe.ZSafeHeightUm)
             {
+                ProbeState(ProbePhase.Lift, verdict: "로트 시작 · 안전 높이로 상승");
                 var lift = await Step("", null, ModuleId.ZHead, PhaseKind.LiftZ, c => _d.ZAxis.MoveAbsoluteAsync(recipe.ZSafeHeightUm, recipe.TravelSpeedMmPerS, recipe.AccelMmPerS2, TimeSpan.FromSeconds(30), c), token);
                 if (!lift.Ok) return lift;
             }
@@ -300,7 +375,7 @@ public sealed class SequenceEngine : ISimulator
                 else { if (prepared is null || !await prepared || !await PlacePrepared(id, recipe, token)) return LastFailure(); }
                 if (_d is IDeviceContext waferContext) waferContext.SetCurrentWafer(id);
                 if (recipe.UnloadOverlap && i < waferCount) prepared = Prefetch($"W{i + 1:D3}", _slots[i], recipe, token);
-                if (!await MeasureWafer(id, recipe, token)) return LastFailure();
+                if (!await MeasureWafer(id, recipe, token)) { _tracker.Update(id, status: WaferStatus.Failed); return LastFailure(); }
                 var summary = _rs.Summarize(id, _measurements, _clock.Elapsed - began); _tracker.Update(id, status: WaferStatus.Measured);
                 if (recipe.Save == SaveMode.Async && channel is not null)
                 {
@@ -324,7 +399,7 @@ public sealed class SequenceEngine : ISimulator
             var reported = await Step("", null, ModuleId.Host, PhaseKind.HostReport, _ => Task.FromResult(DeviceResult.Success), token, note: "로트 완료 보고", startOverride: reportAt, endOverride: reportAt);
             if (!reported.Ok) return reported;
             var avg = TimeSpan.FromTicks((long)_summaries.Average(x => x.Tact.Ticks)); var run = new RunRecord(_runId, _startedAtWall, recipe.Name, JsonSerializer.Serialize(recipe), recipe.Seed, waferCount, avg, avg.Ticks > 0 ? 3600 / avg.TotalSeconds : null, BuildSnapshot().Stats.PhaseTotals, _digest?.Digest(Log.Where(x => x.End.HasValue)) ?? "");
-            if (_store is not null) { var savedRun = await Persist(() => _store.SaveRunAsync(run, token)); if (!savedRun.Ok) return savedRun; var savedLog = await Persist(() => _store.SaveLogAsync(_runId, Log, token)); if (!savedLog.Ok) return savedLog; }
+            if (_store is not null) { var savedRun = await Persist(() => FinalizeRun(run, token)); if (!savedRun.Ok) return savedRun; var savedLog = await Persist(() => _store.SaveLogAsync(_runId, Log, token)); if (!savedLog.Ok) return savedLog; }
             _completed = true; _runCts = null; _currentWafer = null; try { RunCompleted?.Invoke(run); } catch { } Publish(); return DeviceResult.Success;
         }
         catch (OperationCanceledException) { await SafeState(); Publish(); return _alarms.Any(x => x.ClearedAt is null) ? LastFailure() : DeviceResult.Fail(AlarmCode.None, "중단됨"); }
@@ -344,6 +419,7 @@ public sealed class SequenceEngine : ISimulator
                 try { await PersistFailedRun(recipe, waferCount); } catch (Exception e) { Raise(ClassifyException(e, PhaseKind.Save), ModuleId.Storage, e.ToString()); }
             }
             lock (_controlGate) { _pause = false; _resume.TrySetResult(); if (_chuckHeld) { _chuckHeld = false; _chuck.Release(); } }
+            lock (_gate) _runEndedAt = _clock.Elapsed;
             _runCts = null; _runDone.TrySetResult(); Publish();
         }
     }
@@ -369,11 +445,12 @@ public sealed class SequenceEngine : ISimulator
         var run = new RunRecord(_runId, _startedAtWall, name, JsonSerializer.Serialize(recipe), recipe.Seed, waferCount, average, average is { Ticks: > 0 } ? 3600d / average.Value.TotalSeconds : null, BuildSnapshot().Stats.PhaseTotals, _digest?.Digest(Log.Where(x => x.End.HasValue)) ?? "");
         if (_store is not null)
         {
-            var saved = await Persist(() => _store.SaveRunAsync(run, CancellationToken.None));
+            var saved = await Persist(() => FinalizeRun(run, CancellationToken.None));
             if (saved.Ok) await Persist(() => _store.SaveLogAsync(_runId, Log, CancellationToken.None));
         }
         try { RunCompleted?.Invoke(run); } catch { }
     }
+    private Task FinalizeRun(RunRecord run, CancellationToken ct) => _store is IRunFinalizer finalizer ? finalizer.FinalizeRunAsync(run, ct) : _store!.SaveRunAsync(run, ct);
     private async Task<DeviceResult> Persist(Func<Task> write)
     {
         try { await write(); return DeviceResult.Success; }
@@ -460,18 +537,29 @@ public sealed class SequenceEngine : ISimulator
                 if (!(await Step(id, i, ModuleId.Vision, PhaseKind.AutoFocus, c => _d.Vision.AutoFocusAsync(r.AutoFocusWait, TimeSpan.FromSeconds(10), c), ct, true, "초점 안정")).Ok) return false;
                 if (!(await Step(id, i, ModuleId.Vision, PhaseKind.MapInspect, async c => { var x = await _d.Vision.InspectAsync(r.MapInspectTime, c); return x.Ok ? DeviceResult.Success : DeviceResult.Fail(x.Code, x.Message); }, ct)).Ok) return false;
             }
+            _probeDetail = null;
             var contact = false;
             for (int retry = 0; retry <= r.ContactMaxRetry; retry++)
             {
+                ProbeState(ProbePhase.Approach, contactRetry: retry);
                 if (!(await Step(id, i, ModuleId.ZHead, PhaseKind.DescendZ, async c => { if (r.ZMode == ZApproachMode.Slow) return await _d.ZAxis.MoveAbsoluteAsync(0, r.ZApproachSpeedMmPerS, r.AccelMmPerS2, TimeSpan.FromSeconds(30), c); while (_d.ZAxis.PositionUm > 0) { var x = await _d.ZAxis.MoveRelativeAsync(-Math.Min(r.ZStepUm, _d.ZAxis.PositionUm), r.ZApproachSpeedMmPerS, r.AccelMmPerS2, TimeSpan.FromSeconds(30), c); if (!x.Ok) return x; var sense = await _d.Io.ReadAsync(IoPoints.ProbeContact, c); if (!sense.Ok) return DeviceResult.Fail(sense.Code, sense.Message); if (sense.Value) break; } return DeviceResult.Success; }, ct, note: retry > 0 ? $"재시도 {retry}회" : "")).Ok) return false;
+                ProbeState(ProbePhase.ContactCheck, observed: null);
                 var inject = _random.NextDouble() < r.ContactRetryProbability;
-                var detection = await Step(id, i, ModuleId.ZHead, PhaseKind.ContactDetect, async c => { DeviceResult? readError = null; var waited = await _wait.WaitForAsync(async x => { var s = await _d.Io.ReadAsync(IoPoints.ProbeContact, x); if (!s.Ok) { readError = DeviceResult.Fail(s.Code, s.Message); return false; } return !inject && s.Value; }, TimeSpan.FromMilliseconds(10), r.ContactDetectTimeout, AlarmCode.ContactTimeout, "프로브 접촉", c); return readError ?? waited; }, ct, note: retry > 0 ? $"재시도 {retry}회" : "", retryable: true);
+                var sensorReady = _clock.Elapsed + TimeSpan.FromSeconds(5);
+                var detection = await Step(id, i, ModuleId.ZHead, PhaseKind.ContactDetect, async c => { DeviceResult? readError = null; var waited = await _wait.WaitForAsync(async x => { var s = await _d.Io.ReadAsync(IoPoints.ProbeContact, x); if (!s.Ok) { readError = DeviceResult.Fail(s.Code, s.Message); return false; } var observed = (!_sensorDelay || _clock.Elapsed >= sensorReady) && !inject && s.Value; ProbeState(ProbePhase.ContactCheck, observed: observed); return observed; }, TimeSpan.FromMilliseconds(10), r.ContactDetectTimeout, AlarmCode.ContactTimeout, "프로브 접촉", c); return readError ?? waited; }, ct, true, "접촉 확인", note: retry > 0 ? $"재시도 {retry}회" : "", retryable: true);
                 if (detection.Ok) { contact = true; break; }
                 if (detection.Code != AlarmCode.ContactTimeout) { Raise(detection.Code, ModuleId.ZHead, detection.Message); await SafeState(); return false; }
-                if (retry == r.ContactMaxRetry) { Raise(AlarmCode.ContactRetryExceeded, ModuleId.ZHead, "접촉 재시도 초과"); await SafeState(); return false; }
+                if (retry == r.ContactMaxRetry) { ProbeState(ProbePhase.Rejected, observed: false, verdict: "접촉 확인 실패 · 재접촉 한도 소진"); Raise(AlarmCode.ContactRetryExceeded, ModuleId.ZHead, "접촉 재시도 초과"); await SafeState(); return false; }
+                ProbeState(ProbePhase.Lift, verdict: "접촉 실패 · 상승 후 재접촉");
                 var lift = await Step(id, i, ModuleId.ZHead, PhaseKind.LiftZ, c => _d.ZAxis.MoveAbsoluteAsync(50, r.ZApproachSpeedMmPerS, r.AccelMmPerS2, TimeSpan.FromSeconds(30), c), ct, note: "접촉 재시도 50 µm 상승"); if (!lift.Ok) return false;
             }
             if (!contact) return false;
+            ProbeState(ProbePhase.Settle, observed: true);
+            if (!(await Step(id, i, ModuleId.ZHead, PhaseKind.Wait, async c => { await Task.Delay(r.ProbeSettleTime, _clock, c); return DeviceResult.Success; }, ct, true, "접촉 안정화")).Ok) return false;
+            MeasurementResult? accepted = null;
+            for (int qualityRetry = 0; qualityRetry <= r.QualityMaxRetry; qualityRetry++)
+            {
+            ProbeState(ProbePhase.Sampling, samples: 0, qualityRetry: qualityRetry, observed: true);
             var volts = new List<double>();
             for (int reading = 0; reading < r.ReadingsPerSite; reading++)
             {
@@ -482,11 +570,23 @@ public sealed class SequenceEngine : ISimulator
                     var sample = await _d.Smu.MeasureVoltageAsync(r.ReadingTime, c);
                     if (!sample.Ok) return DeviceResult.Fail(sample.Code, sample.Message);
                     volts.Add(sample.Value);
+                    ProbeState(ProbePhase.Sampling, samples: volts.Count, observed: true);
+                    _probeDetail = _probeDetail! with { LastSampleV = sample.Value };
                     return index == r.ReadingsPerSite - 1 ? await _d.Smu.OutputAsync(false, c) : DeviceResult.Success;
                 }, ct, note: $"읽기 {reading + 1}");
                 if (!v.Ok) return false;
             }
-            var result = _rs.Build(id, i, point.XUm, point.YUm, volts, r.SourceCurrentA, r.WaferDiameterMm, _clock.Elapsed); _measurements.Add(result); try { MeasurementCompleted?.Invoke(result); } catch { } _tracker.Update(id, sitesDone: i + 1);
+            var candidate = _rs.Build(id, i, point.XUm, point.YUm, volts, r.SourceCurrentA, r.WaferDiameterMm, _clock.Elapsed);
+            var deviation = candidate.RsOhmPerSq == 0 ? double.PositiveInfinity : Math.Abs(candidate.RsSigma / candidate.RsOhmPerSq) * 100;
+            var good = !r.QualityEnabled || volts.Count(double.IsFinite) >= r.QualityMinSamples && double.IsFinite(deviation) && deviation <= r.QualityTolerancePct;
+            ProbeState(ProbePhase.QualityCheck, samples: volts.Count(double.IsFinite), deviation: deviation, observed: true, verdict: !r.QualityEnabled ? "품질 판정 비활성" : good ? "양품" : "반복 샘플 편차 초과");
+            var judged = await Step(id, i, ModuleId.Smu, PhaseKind.Wait, _ => Task.FromResult(DeviceResult.Success), ct, note: $"품질 판정 σ/평균 {deviation:F4}% / 허용 {r.QualityTolerancePct:F4}% · 재측정 {qualityRetry} · {(!r.QualityEnabled ? "미판정" : good ? "통과" : "불량")}");
+            if (!judged.Ok) return false;
+            if (good) { accepted = candidate; break; }
+            if (qualityRetry == r.QualityMaxRetry) { ProbeState(ProbePhase.Rejected, verdict: "품질 허용 초과 · 최종 불량"); Raise(AlarmCode.QualityRejected, ModuleId.Smu, "반복 샘플 편차 허용 초과 · 품질 재시도 소진"); await SafeState(); return false; }
+            }
+            var result = accepted!; _measurements.Add(result); try { MeasurementCompleted?.Invoke(result); } catch { } _tracker.Update(id, sitesDone: i + 1);
+            ProbeState(ProbePhase.Lift, observed: true, verdict: _probeDetail?.Verdict ?? "");
             if (!(await Step(id, i, ModuleId.ZHead, PhaseKind.LiftZ, c => _d.ZAxis.MoveAbsoluteAsync(r.ZLiftAfterMeasureUm, r.TravelSpeedMmPerS, r.AccelMmPerS2, TimeSpan.FromSeconds(30), c), ct)).Ok) return false;
         }
         _currentSite = null; return true;
@@ -502,7 +602,7 @@ public sealed class SequenceEngine : ISimulator
     {
         (TimeSpan Start, TimeSpan End)? schedule;
         lock (_gate) schedule = r.Save == SaveMode.Async && _saveSchedule.TryGetValue(summary.WaferId, out var planned) ? planned : null;
-        return Step(summary.WaferId, null, ModuleId.Storage, PhaseKind.Save, async c => { await Task.Delay(r.SaveWriteTime, _clock, c); if (_store is not null) await _store.SaveWaferAsync(_runId, summary, c); _tracker.Update(summary.WaferId, status: WaferStatus.Saved); return DeviceResult.Success; }, ct, true, "결과 기록", startOverride: schedule?.Start, endOverride: schedule?.End);
+        return Step(summary.WaferId, null, ModuleId.Storage, PhaseKind.Save, async c => { await Task.Delay(r.SaveWriteTime, _clock, c); if (_store is not null) await _store.SaveWaferAsync(_runId, summary, c); _tracker.Update(summary.WaferId, status: StorageRecovery?.IsWaferPending(_runId, summary.WaferId) == true ? WaferStatus.Journaled : WaferStatus.Saved); return DeviceResult.Success; }, ct, true, "결과 기록", startOverride: schedule?.Start, endOverride: schedule?.End);
     }
     private async Task<DeviceResult> Consume(ChannelReader<WaferSummary> reader, CancellationToken ct) { await foreach (var item in reader.ReadAllAsync(ct)) { var result = await Save(item, _recipe!, ct); if (!result.Ok) { _runCts?.Cancel(); return result; } _pendingSaves.TryRemove(item.WaferId, out _); Interlocked.Decrement(ref _queueDepth); } return DeviceResult.Success; }
     public void Pause() { lock (_controlGate) { if (_runCts is null || _pause) return; _resume = new(TaskCreationOptions.RunContinuationsAsynchronously); _pause = true; } }
@@ -519,7 +619,7 @@ public sealed class SequenceEngine : ISimulator
     }
     public Task<DeviceResult> ResetAsync()
     {
-        if (_runCts is not null || Volatile.Read(ref _starting) != 0 || Volatile.Read(ref _initializing) != 0) return Task.FromResult(DeviceResult.Fail(AlarmCode.InterlockBlocked, "실행 중에는 초기화할 수 없음"));
+        if (Volatile.Read(ref _recovering) != 0 || _runCts is not null || Volatile.Read(ref _starting) != 0 || Volatile.Read(ref _initializing) != 0) return Task.FromResult(DeviceResult.Fail(AlarmCode.InterlockBlocked, "실행 중에는 초기화할 수 없음"));
         Alarm[] cleared;
         lock (_gate)
         {

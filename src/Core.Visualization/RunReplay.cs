@@ -18,7 +18,7 @@ public sealed class RunReplay
     public void Clear(){ lock(gate){frames.Clear();events.Clear();FramesTruncated=false;EventsTruncated=false;} }
     public void Record(EquipmentSnapshot snapshot)
     {
-        var copy=snapshot with { Modules=snapshot.Modules.ToArray(),Wafers=snapshot.Wafers.ToArray(),Sites=snapshot.Sites.ToArray(),ActiveAlarms=snapshot.ActiveAlarms.ToArray(),Stats=snapshot.Stats with { PhaseTotals=new Dictionary<PhaseKind,TimeSpan>(snapshot.Stats.PhaseTotals) } };
+        var copy=snapshot with { Interlock=snapshot.Interlock is { } interlock ? interlock with { Conditions=Array.AsReadOnly(interlock.Conditions.ToArray()) } : null, Modules=snapshot.Modules.ToArray(),Wafers=snapshot.Wafers.ToArray(),Sites=snapshot.Sites.ToArray(),ActiveAlarms=snapshot.ActiveAlarms.ToArray(),Stats=snapshot.Stats with { PhaseTotals=new Dictionary<PhaseKind,TimeSpan>(snapshot.Stats.PhaseTotals) } };
         lock(gate)
         {
             if(frames.Count>0)
@@ -53,6 +53,7 @@ public sealed class RunReplay
     {
         lock(gate)
         {
+            if(frames.Count>0 && time>=Duration)return frames[^1];
             var frame=Seek(time);
             return frame is null?null:frame with { SimTime=time>Duration?Duration:time };
         }

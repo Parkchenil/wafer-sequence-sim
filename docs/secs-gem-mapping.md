@@ -30,6 +30,7 @@
 | 1004 | ServoOff | Error |
 | 2001 | ContactTimeout | Error |
 | 2002 | ContactRetryExceeded | Error |
+| 2003 | QualityRejected (품질 재측정 한도 소진) | Error |
 | 3001 | VacuumNotConfirmed | Error |
 | 3002 | InterlockBlocked | Error |
 | 4001 | VisionAlignFail | Error |

@@ -16,13 +16,14 @@ public sealed record Face3D(Vector3[] Vertices, Rgb Color, string Part)
 public sealed record ProjectedFace(Vector2[] Vertices, Rgb Color, float Depth, string Part);
 public readonly record struct Camera3D(float Yaw, float Pitch, float Zoom)
 {
+    public Vector3? Target { get; init; }
     public static Camera3D Default => new(-0.65f, 0.48f, 1);
     public Camera3D Clamp()
     {
         var yaw=float.IsFinite(Yaw)?MathF.IEEERemainder(Yaw,2*MathF.PI):0;
         var pitch=float.IsFinite(Pitch)?Math.Clamp(Pitch,-.05f,1.35f):.48f;
         var zoom=float.IsFinite(Zoom)?Math.Clamp(Zoom,.45f,3.5f):1;
-        return new(yaw,pitch,zoom);
+        return new Camera3D(yaw,pitch,zoom) { Target=Target };
     }
 }
 public static class Concept3D

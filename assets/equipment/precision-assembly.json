@@ -1,12 +1,12 @@
 {
   "projectId": "d4899871-d2d7-4214-a28f-26b1049d0545",
   "projectUrl": "https://higgsfield.ai/3d-jutsu/d4899871-d2d7-4214-a28f-26b1049d0545",
-  "revision": 4,
-  "sha256": "626f3e684b535dbd8c4b50bbb993570760cb7602cf70fe433e520862c4a88d2a",
+  "revision": 7,
+  "sha256": "d7f3946efdde0a680ab93df905bd3164ea5758a9a0e3f7e5f04e277b0e851e8b",
   "units": "metre",
   "upAxis": "Y",
-  "meshCount": 191,
-  "triangleCount": 22608,
+  "meshCount": 210,
+  "triangleCount": 21876,
   "waferDiameterM": 0.3,
   "slotCount": 25,
   "pinCount": 4,
@@ -19,13 +19,15 @@
     "ALIGNER_rotor": "정렬 회전",
     "ROBOT": "local +X 강체 관절",
     "WAFER_template": "실제 상태별 인스턴스 원본",
-    "LAMP": "상태등"
+    "LAMP": "상태등",
+    "CARRIAGE": "로봇 승강 캐리지",
+    "JOINT": "로봇 관절 연결부"
   },
   "robotCarrierLevelsM": {
-    "upper": 0.075,
-    "lower": 0.09,
+    "upper": 0.118,
+    "lower": 0.124,
     "blade": 0.13,
-    "padTop": 0.137,
-    "waferBottom": 0.137
+    "padTop": 0.132,
+    "waferBottom": 0.132
   }
 }
